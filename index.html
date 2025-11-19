@@ -351,6 +351,52 @@
             color: #999;
         }
 
+        /* 覆盖外层容器样式，去掉大方框 */
+        #notesSection #noteContent {
+            border: none !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+            background: transparent !important;
+            white-space: normal !important;
+        }
+
+        /* 笔记渲染样式（可展开/收起） */
+        .diary-entry {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 12px 14px;
+            margin: 0 auto 12px;
+            max-width: 900px;
+            background: transparent;
+        }
+        .diary-date {
+            font-size: 1.1rem;
+            color: #ffffff;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            font-weight: 400;
+        }
+        .diary-content {
+            color: #cfcfcf;
+            line-height: 1.8;
+            font-size: 0.95rem;
+            white-space: normal;
+        }
+        .diary-content.clamped {
+            display: -webkit-box;
+            -webkit-line-clamp: 6; /* 显示前6行，超出省略 */
+            line-clamp: 6;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .diary-toggle {
+            margin-top: 6px;
+            color: #9ab;
+            cursor: pointer;
+            font-size: 0.85rem;
+            user-select: none;
+        }
+        .diary-toggle:hover { color: #cde; }
+
         /* 笔记渲染样式（可展开/收起） */
         .diary-entry {
             border: 1px solid rgba(255, 255, 255, 0.12);
@@ -710,6 +756,16 @@
             root.querySelectorAll('.diary-entry').forEach(entryEl => {
                 const contentEl = entryEl.querySelector('.diary-content');
                 const toggleEl = entryEl.querySelector('.diary-toggle');
+
+                // 首次判断是否需要“展开”按钮（不溢出则隐藏）
+                // 使用微任务确保渲染完成后计算高度
+                setTimeout(() => {
+                    if (contentEl.scrollHeight <= contentEl.clientHeight + 1) {
+                        // 内容本身不超过限制行数，隐藏按钮
+                        toggleEl.style.display = 'none';
+                    }
+                }, 0);
+
                 const toggle = () => {
                     const open = toggleEl.getAttribute('data-open') === 'true';
                     if (open) {
