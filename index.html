@@ -351,6 +351,43 @@
             color: #999;
         }
 
+        /* 笔记渲染样式（可展开/收起） */
+        .diary-entry {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 16px 18px;
+            margin: 0 auto 16px;
+            max-width: 900px;
+            background: transparent;
+        }
+        .diary-date {
+            font-size: 1.15rem;
+            color: #ffffff;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            font-weight: 400;
+        }
+        .diary-content {
+            color: #cfcfcf;
+            line-height: 1.9;
+            font-size: 0.95rem;
+            white-space: normal !important;
+        }
+        .diary-content.clamped {
+            display: -webkit-box;
+            -webkit-line-clamp: 6; /* 显示前6行，超出省略 */
+            line-clamp: 6;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .diary-toggle {
+            margin-top: 8px;
+            color: #9ab;
+            cursor: pointer;
+            font-size: 0.85rem;
+            user-select: none;
+        }
+        .diary-toggle:hover { color: #cde; }
+
         /* 响应式 */
         @media (max-width: 768px) {
             .name {
@@ -506,7 +543,7 @@
 
         <div class="tools-header">
             <h2 class="tools-title">笔记</h2>
-            <p class="tools-subtitle">自动展示 diary.txt（只读）</p>
+            <p class="tools-subtitle">自动展示 diary.txt（支持展开/收起）</p>
         </div>
 
         <div style="max-width:900px;margin:0 auto;">
@@ -595,27 +632,99 @@
         });
 
         // 显示笔记面板
-                function showNotes() {
-                        document.getElementById('homeSection').style.display = 'none';
-                        document.getElementById('toolsSection').classList.remove('active');
-                        document.getElementById('notesSection').style.display = 'block';
-                        window.scrollTo(0, 0);
+        function showNotes() {
+            document.getElementById('homeSection').style.display = 'none';
+            document.getElementById('toolsSection').classList.remove('active');
+            document.getElementById('notesSection').style.display = 'block';
+            window.scrollTo(0, 0);
 
-                        const contentEl = document.getElementById('noteContent');
-                        if (!contentEl) return;
-                        contentEl.textContent = '正在加载日记...';
-                        fetch('diary.txt?ts=' + Date.now())
-                            .then(res => {
-                                if (!res.ok) throw new Error('无法读取 diary.txt');
-                                return res.text();
-                            })
-                            .then(text => {
-                                contentEl.textContent = text;
-                            })
-                            .catch(err => {
-                                contentEl.textContent = '未找到 diary.txt 或加载失败。请将 diary.txt 上传到与本页相同目录后再试。';
-                            });
+            const contentEl = document.getElementById('noteContent');
+            if (!contentEl) return;
+            contentEl.textContent = '正在加载日记...';
+
+            fetch('diary.txt?ts=' + Date.now())
+                .then(res => {
+                    if (!res.ok) throw new Error('无法读取 diary.txt');
+                    return res.text();
+                })
+                .then(text => {
+                    const entries = parseDiary(text);
+                    if (!entries.length) {
+                        contentEl.innerHTML = '<div class="diary-empty">暂无内容</div>';
+                        return;
+                    }
+                    contentEl.innerHTML = entries.map(renderDiaryEntry).join('');
+                    bindDiaryToggles(contentEl);
+                })
+                .catch(err => {
+                    contentEl.textContent = '未找到 diary.txt 或加载失败。请将 diary.txt 上传到与本页相同目录后再试。';
+                });
+        }
+
+        function parseDiary(text) {
+            const lines = text.split(/\r?\n/);
+            const entries = [];
+            let current = null;
+            for (const raw of lines) {
+                const line = raw; // 保留原文
+                if (/^##\s+/.test(line)) {
+                    if (current) entries.push(current);
+                    current = { date: line.replace(/^##\s+/, '').trim(), body: [] };
+                } else if (line.trim() === '---') {
+                    // 分隔线，忽略
+                } else {
+                    if (!current) {
+                        // 若开头没有标题，也归入一个默认分组
+                        current = { date: '未命名', body: [] };
+                    }
+                    current.body.push(line);
                 }
+            }
+            if (current) entries.push(current);
+            return entries;
+        }
+
+        function escapeHtml(s) {
+            return s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderDiaryEntry(entry) {
+            const content = entry.body.join('\n').trim();
+            // 用 <br> 保留换行，对多行做 CSS clamp
+            const htmlContent = escapeHtml(content).replace(/\n/g, '<br>');
+            return `
+                <article class="diary-entry">
+                    <div class="diary-date">${escapeHtml(entry.date)}</div>
+                    <div class="diary-content clamped">${htmlContent}</div>
+                    <div class="diary-toggle" data-open="false">展开</div>
+                </article>
+            `;
+        }
+
+        function bindDiaryToggles(root) {
+            root.querySelectorAll('.diary-entry').forEach(entryEl => {
+                const contentEl = entryEl.querySelector('.diary-content');
+                const toggleEl = entryEl.querySelector('.diary-toggle');
+                const toggle = () => {
+                    const open = toggleEl.getAttribute('data-open') === 'true';
+                    if (open) {
+                        contentEl.classList.add('clamped');
+                        toggleEl.textContent = '展开';
+                        toggleEl.setAttribute('data-open', 'false');
+                    } else {
+                        contentEl.classList.remove('clamped');
+                        toggleEl.textContent = '收起';
+                        toggleEl.setAttribute('data-open', 'true');
+                    }
+                };
+                toggleEl.addEventListener('click', toggle);
+            });
+        }
 
         // 笔记面板：仅展示 diary.txt，无交互按钮
     </script>
