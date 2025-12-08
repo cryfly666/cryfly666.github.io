@@ -1,16 +1,145 @@
-## 2025-11-21 
+CODE SEGMENT
+ASSUME CS:CODE,DS:DATA
 
-一天的时间过的好快，我今天就去看了下牙，打了会王者荣耀，踢了会球，刷了会怪奇物语，做了一道题，写了一句日记，就结束了！？另：再不写这个diary都要报废了。 
+START:
+    ; 初始化8255：A口输入，B口输出（方式0）
+    MOV DX,203H
+    MOV AL,90H ; 控制字：1001 0000B
+    OUT DX,AL
 
-## 2025-11-19 
+    ; 初始化8259：ICW1（边沿触发，单片）
+    MOV DX,204H
+    MOV AL,13H ; 0001 0011B
+    OUT DX,AL
+    ; ICW2（中断类型号08H）
+    MOV DX,205H
+    MOV AL,08H
+    OUT DX,AL
+    ; ICW4（8086模式，普通EOI）
+    MOV AL,01H
+    OUT DX,AL
+    ; OCW1（开放IR0中断）
+    MOV AL,0FEH
+    OUT DX,AL
 
-测试似乎成功了吧？
-我推荐你们都收藏这个网站
+    ; 开中断
+    STI
 
----
-## 2025-11-18 
+MAIN_LOOP:
+    ; 检测按键（8255 A口）
+    MOV DX,200H
+    IN AL,DX
+    AND AL,07H ; 只取PA0~PA2
+    CMP AL,07H ; 无按键
+    JE SEND_WAVE
 
+    ; 处理按键
+    CMP AL,06H ; PA0按下：波形切换
+    JE CHANGE_WAVE
+    CMP AL,05H ; PA1按下：频率+
+    JE FREQ_ADD
+    CMP AL,03H ; PA2按下：频率-
+    JE FREQ_SUB
 
-测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢测试看看有没有展开功能呢既然你展开了说明有展开功能了 (＾▽＾)
+SEND_WAVE:
+    ; 输出当前波形数据
+    MOV SI,0
+    MOV AL,WAVE_TYPE
+    CMP AL,0
+    JE SQUARE_OUT
+    CMP AL,1
+    JE TRI_OUT
+    CMP AL,2
+    JE SIN_OUT
 
+SQUARE_OUT:
+    MOV AL,SQUARE_WAVE[SI]
+    JMP OUT_DATA
+TRI_OUT:
+    MOV AL,TRI_WAVE[SI]
+    JMP OUT_DATA
+SIN_OUT:
+    MOV AL,SIN_WAVE[SI]
 
+OUT_DATA:
+    ; 输出到DAC0832
+    MOV DX,201H ; 8255 B口
+    OUT DX,AL
+    MOV DX,202H ; DAC0832片选
+    OUT DX,AL ; 触发转换
+
+    ; 频率延时
+    MOV CX,0
+    MOV CL,FREQ
+DELAY:
+    LOOP DELAY
+
+    ; 波形表指针自增
+    INC SI
+    CMP WAVE_TYPE,0
+    JE SQUARE_CHK
+    CMP WAVE_TYPE,1
+    JE TRI_CHK
+    CMP WAVE_TYPE,2
+    JE SIN_CHK
+SQUARE_CHK:
+    CMP SI,8
+    JE RESET_SQUARE
+    JMP MAIN_LOOP
+RESET_SQUARE:
+    MOV SI,0
+    JMP MAIN_LOOP
+TRI_CHK:
+    CMP SI,16
+    JE RESET_TRI
+    JMP MAIN_LOOP
+RESET_TRI:
+    MOV SI,0
+    JMP MAIN_LOOP
+SIN_CHK:
+    CMP SI,20
+    JE RESET_SIN
+    JMP MAIN_LOOP
+RESET_SIN:
+    MOV SI,0
+    JMP MAIN_LOOP
+
+; 波形切换按键处理
+CHANGE_WAVE:
+    INC WAVE_TYPE
+    CMP WAVE_TYPE,3
+    JE RESET_WAVE
+    JMP MAIN_LOOP
+RESET_WAVE:
+    MOV WAVE_TYPE,0
+    JMP MAIN_LOOP
+
+; 频率调节处理
+FREQ_ADD:
+    CMP FREQ,1
+    JE MAIN_LOOP
+    DEC FREQ
+    JMP MAIN_LOOP
+FREQ_SUB:
+    CMP FREQ,20
+    JE MAIN_LOOP
+    INC FREQ
+    JMP MAIN_LOOP
+
+; 8259中断服务程序（开关机）
+INT08H_PROC:
+    CLI
+    ; 关机逻辑（如跳转到停机指令）
+    MOV AX,0
+    MOV SS,AX
+    MOV SP,0FFFFH
+    HLT
+    ; EOI
+    MOV DX,204H
+    MOV AL,20H
+    OUT DX,AL
+    STI
+    IRET
+
+CODE ENDS
+END START
