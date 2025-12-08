@@ -1,789 +1,153 @@
+用 <pre> 标签就能最简单地实现，它会完整保留汇编代码的换行和缩进格式，直接复制下面代码保存为 .html 文件即可，打开就能看到纯文本代码：
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CryFly666</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
-            overflow-x: hidden;
-        }
-
-        /* ========== 主页部分 ========== */
-        .home-section {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 40px 20px;
-            position: relative;
-        }
-
-        /* 个人信息 */
-        .profile-info {
-            text-align: center;
-            margin-bottom: 60px;
-            animation: fadeIn 1s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .name {
-            font-size: 3.5rem;
-            font-weight: 200;
-            color: #ffffff;
-            margin-bottom: 20px;
-            letter-spacing: 8px;
-            line-height: 1.2;
-        }
-
-        .bio {
-            font-size: 1.1rem;
-            color: #999;
-            font-weight: 300;
-            letter-spacing: 4px;
-            margin-bottom: 30px;
-        }
-
-        .contact-info {
-            font-size: 0.95rem;
-            color: #777;
-            font-weight: 300;
-            letter-spacing: 1px;
-        }
-
-        .contact-info a {
-            color: #999;
-            text-decoration: none;
-            transition: color 0.3s ease;
-        }
-
-        .contact-info a:hover {
-            color: #fff;
-        }
-
-        /* 分隔线 */
-        .divider {
-            width: 80px;
-            height: 1px;
-            background: rgba(255, 255, 255, 0.2);
-            margin: 50px auto;
-            animation: fadeIn 1s ease-out 0.2s both;
-        }
-
-        /* 导航菜单 */
-        .nav-menu {
-            display: flex;
-            gap: 0;
-            animation: fadeIn 1s ease-out 0.4s both;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }
-
-        .nav-item {
-            padding: 20px 50px;
-            text-decoration: none;
-            color: #aaa;
-            font-size: 0.9rem;
-            font-weight: 400;
-            transition: all 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
-            cursor: pointer;
-            background: transparent;
-            letter-spacing: 2px;
-        }
-
-        .nav-item:hover {
-            color: #ffffff;
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .nav-icon {
-            font-size: 1.5rem;
-            opacity: 0.6;
-            transition: all 0.3s ease;
-        }
-
-        .nav-item:hover .nav-icon {
-            opacity: 1;
-            transform: translateY(-2px);
-        }
-
-        /* 页脚 */
-        .footer {
-            position: absolute;
-            bottom: 40px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            font-size: 0.85rem;
-            color: #555;
-            animation: fadeIn 1s ease-out 0.6s both;
-            letter-spacing: 1px;
-        }
-
-        /* ========== 工具站部分 ========== */
-        .tools-section {
-            min-height: 100vh;
-            padding: 80px 20px;
-            display: none;
-        }
-
-        .tools-section.active {
-            display: block;
-        }
-
-        /* 返回按钮 */
-        .back-button {
-            position: fixed;
-            top: 40px;
-            left: 40px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            z-index: 100;
-            padding: 12px 24px;
-            display: flex;
-            align-items: center;
-            backdrop-filter: blur(10px);
-        }
-
-        .back-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.3);
-            transform: translateX(-3px);
-        }
-
-        /* 返回按钮文字 */
-        .back-text {
-            font-size: 0.9rem;
-            color: #aaa;
-            letter-spacing: 2px;
-            transition: color 0.3s ease;
-        }
-
-        .back-button:hover .back-text {
-            color: #fff;
-        }
-
-        /* 工具站头部 */
-        .tools-header {
-            max-width: 1200px;
-            margin: 0 auto 80px;
-            text-align: center;
-        }
-
-        .tools-title {
-            font-size: 3rem;
-            font-weight: 200;
-            color: #ffffff;
-            margin-bottom: 20px;
-            letter-spacing: 8px;
-        }
-
-        .tools-subtitle {
-            font-size: 1rem;
-            color: #999;
-            font-weight: 300;
-            letter-spacing: 3px;
-        }
-
-        /* 搜索框 */
-        .search-container {
-            max-width: 600px;
-            margin: 0 auto 60px;
-        }
-
-        .search-box {
-            width: 100%;
-            padding: 18px 28px;
-            font-size: 0.95rem;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 0;
-            background: transparent;
-            color: #e0e0e0;
-            outline: none;
-            transition: all 0.3s ease;
-            font-family: inherit;
-            letter-spacing: 1px;
-        }
-
-        .search-box::placeholder {
-            color: #666;
-            letter-spacing: 2px;
-        }
-
-        .search-box:focus {
-            background: rgba(255, 255, 255, 0.02);
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        /* 分类标签 */
-        .category-tabs {
-            display: flex;
-            justify-content: center;
-            gap: 0;
-            margin-bottom: 60px;
-            max-width: 700px;
-            margin-left: auto;
-            margin-right: auto;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }
-
-        .tab {
-            padding: 14px 35px;
-            color: #aaa;
-            border-right: 1px solid rgba(255, 255, 255, 0.15);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-weight: 400;
-            font-size: 0.9rem;
-            background: transparent;
-            letter-spacing: 2px;
-        }
-
-        .tab:last-child {
-            border-right: none;
-        }
-
-        .tab:hover {
-            color: #ffffff;
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .tab.active {
-            color: #ffffff;
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        /* 工具网格 */
-        .tools-grid {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-        }
-
-        .tool-card {
-            background: #0a0a0a;
-            padding: 45px 35px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }
-
-        .tool-card:hover {
-            background: rgba(255, 255, 255, 0.03);
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .tool-icon {
-            font-size: 2.8rem;
-            margin-bottom: 24px;
-            display: block;
-            opacity: 0.7;
-            transition: all 0.3s ease;
-        }
-
-        .tool-card:hover .tool-icon {
-            opacity: 1;
-            transform: translateY(-3px);
-        }
-
-        .tool-title {
-            font-size: 1.2rem;
-            font-weight: 400;
-            margin-bottom: 14px;
-            color: #ffffff;
-            letter-spacing: 1px;
-        }
-
-        .tool-description {
-            color: #999;
-            font-size: 0.9rem;
-            line-height: 1.7;
-            margin-bottom: 24px;
-            font-weight: 300;
-        }
-
-        .tool-tags {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .tag {
-            background: transparent;
-            color: #777;
-            padding: 6px 14px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            font-size: 0.75rem;
-            font-weight: 300;
-            transition: all 0.3s ease;
-            letter-spacing: 1px;
-        }
-
-        .tool-card:hover .tag {
-            border-color: rgba(255, 255, 255, 0.25);
-            color: #999;
-        }
-
-        /* 覆盖外层容器样式，去掉大方框 */
-        #notesSection #noteContent {
-            border: none !important;
-            padding: 0 !important;
-            min-height: 0 !important;
-            background: transparent !important;
-            white-space: normal !important;
-        }
-
-        /* 笔记渲染样式（可展开/收起） */
-        .diary-entry {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            padding: 12px 14px;
-            margin: 0 auto 12px;
-            max-width: 900px;
-            background: transparent;
-        }
-        .diary-date {
-            font-size: 1.1rem;
-            color: #ffffff;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-            font-weight: 400;
-        }
-        .diary-content {
-            color: #cfcfcf;
-            line-height: 1.8;
-            font-size: 0.95rem;
-            white-space: normal;
-        }
-        .diary-content.clamped {
-            display: -webkit-box;
-            -webkit-line-clamp: 6; /* 显示前6行，超出省略 */
-            line-clamp: 6;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-        .diary-toggle {
-            margin-top: 6px;
-            color: #9ab;
-            cursor: pointer;
-            font-size: 0.85rem;
-            user-select: none;
-        }
-        .diary-toggle:hover { color: #cde; }
-
-        /* 笔记渲染样式（可展开/收起） */
-        .diary-entry {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            padding: 16px 18px;
-            margin: 0 auto 16px;
-            max-width: 900px;
-            background: transparent;
-        }
-        .diary-date {
-            font-size: 1.15rem;
-            color: #ffffff;
-            letter-spacing: 1px;
-            margin-bottom: 10px;
-            font-weight: 400;
-        }
-        .diary-content {
-            color: #cfcfcf;
-            line-height: 1.9;
-            font-size: 0.95rem;
-            white-space: normal !important;
-        }
-        .diary-content.clamped {
-            display: -webkit-box;
-            -webkit-line-clamp: 6; /* 显示前6行，超出省略 */
-            line-clamp: 6;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-        .diary-toggle {
-            margin-top: 8px;
-            color: #9ab;
-            cursor: pointer;
-            font-size: 0.85rem;
-            user-select: none;
-        }
-        .diary-toggle:hover { color: #cde; }
-
-        /* 响应式 */
-        @media (max-width: 768px) {
-            .name {
-                font-size: 2.2rem;
-                letter-spacing: 4px;
-            }
-
-            .bio {
-                font-size: 0.95rem;
-                letter-spacing: 2px;
-            }
-
-            .nav-item {
-                padding: 18px 40px;
-            }
-
-            .tools-title {
-                font-size: 2rem;
-                letter-spacing: 4px;
-            }
-
-            .tools-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .category-tabs {
-                flex-wrap: wrap;
-                border: none;
-            }
-
-            .tab {
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                margin: 5px;
-            }
-
-            .back-button {
-                top: 20px;
-                left: 20px;
-            }
-        }
-    </style>
-</head>
+<html>
 <body>
-    <!-- ========== 主页部分 ========== -->
-    <section class="home-section" id="homeSection">
-        <!-- 个人信息 -->
-        <div class="profile-info">
-            <h1 class="name">CRYFLY666</h1>
-            <p class="bio">啥也不会</p>
-            <!-- QQ号位置，如果需要可以取消注释 -->
-            <!-- <p class="contact-info">QQ: <a href="tencent://message/?uin=你的QQ号">你的QQ号</a></p> -->
-        </div>
+<pre>
+CODE SEGMENT
+ASSUME CS:CODE,DS:DATA
 
-        <!-- 分隔线 -->
-        <div class="divider"></div>
+START:
+    ; 初始化8255：A口输入，B口输出（方式0）
+    MOV DX,203H
+    MOV AL,90H ; 控制字：1001 0000B
+    OUT DX,AL
 
-        <!-- 导航菜单 -->
-        <nav class="nav-menu">
-            <div class="nav-item" onclick="showTools()">
-                <span class="nav-icon">🛠️</span>
-                <span>工具站</span>
-            </div>
-            <div class="nav-item" onclick="showNotes()">
-                <span class="nav-icon">📝</span>
-                <span>Note</span>
-            </div>
-        </nav>
+    ; 初始化8259：ICW1（边沿触发，单片）
+    MOV DX,204H
+    MOV AL,13H ; 0001 0011B
+    OUT DX,AL
+    ; ICW2（中断类型号08H）
+    MOV DX,205H
+    MOV AL,08H
+    OUT DX,AL
+    ; ICW4（8086模式，普通EOI）
+    MOV AL,01H
+    OUT DX,AL
+    ; OCW1（开放IR0中断）
+    MOV AL,0FEH
+    OUT DX,AL
 
-        <!-- 页脚 -->
-        <div class="footer">
-            <p>© 2025 CRYFLY666</p>
-        </div>
-    </section>
+    ; 开中断
+    STI
 
-    <!-- ========== 工具站部分 ========== -->
-    <section class="tools-section" id="toolsSection">
-        <!-- 返回按钮 -->
-        <div class="back-button" onclick="showHome()">
-            <span class="back-text">返回主页</span>
-        </div>
+MAIN_LOOP:
+    ; 检测按键（8255 A口）
+    MOV DX,200H
+    IN AL,DX
+    AND AL,07H ; 只取PA0~PA2
+    CMP AL,07H ; 无按键
+    JE SEND_WAVE
 
-        <!-- 工具站头部 -->
-        <div class="tools-header">
-            <h2 class="tools-title">工具站</h2>
-            <p class="tools-subtitle">本人亲测非常有用的一些工具ovo</p>
-        </div>
+    ; 处理按键
+    CMP AL,06H ; PA0按下：波形切换
+    JE CHANGE_WAVE
+    CMP AL,05H ; PA1按下：频率+
+    JE FREQ_ADD
+    CMP AL,03H ; PA2按下：频率-
+    JE FREQ_SUB
 
-        <!-- 搜索框 -->
-        <div class="search-container">
-            <input type="text" class="search-box" id="searchInput" placeholder="搜索工具...">
-        </div>
+SEND_WAVE:
+    ; 输出当前波形数据
+    MOV SI,0
+    MOV AL,WAVE_TYPE
+    CMP AL,0
+    JE SQUARE_OUT
+    CMP AL,1
+    JE TRI_OUT
+    CMP AL,2
+    JE SIN_OUT
 
-        <!-- 分类标签 -->
-        <div class="category-tabs">
-            <div class="tab active">全部</div>
-            <div class="tab">开发</div>
-            <div class="tab">设计</div>
-            <div class="tab">效率</div>
-            <div class="tab">生活</div>
-        </div>
+SQUARE_OUT:
+    MOV AL,SQUARE_WAVE[SI]
+    JMP OUT_DATA
+TRI_OUT:
+    MOV AL,TRI_WAVE[SI]
+    JMP OUT_DATA
+SIN_OUT:
+    MOV AL,SIN_WAVE[SI]
 
-        <!-- 工具网格 -->
-        <div class="tools-grid" id="toolsGrid">
-            <!-- 示例工具 1 -->
-            <div class="tool-card" onclick="window.open('https://wxaiway.com/md2wd/', '_blank')">
-                <span class="tool-icon">▣</span>
-                <h3 class="tool-title">Markdown转成Word</h3>
-                <p class="tool-description">将Markdown文档快速转换为Word格式，方便编辑和分享（非常适合用来转化ai给的长篇大论）</p>
-                <div class="tool-tags">
-                    <span class="tag">生活</span>
-                    <span class="tag">效率</span>
-                </div>
-            </div>
+OUT_DATA:
+    ; 输出到DAC0832
+    MOV DX,201H ; 8255 B口
+    OUT DX,AL
+    MOV DX,202H ; DAC0832片选
+    OUT DX,AL ; 触发转换
 
-            <!-- 示例工具 2 -->
-            <div class="tool-card" onclick="window.open('https://www.beautifulcarrot.com/', '_blank')">
-                <span class="tool-icon">◈</span>
-                <h3 class="tool-title">萝卜工坊</h3>
-                <p class="tool-description">在线生成模拟手写文稿，让打印的字看起来和手写的一样，快速搞定文字抄写任务<br>你懂的（￣︶￣）↗</p>
-                <div class="tool-tags">
-                    <span class="tag">效率</span>
-                </div>
-            </div>
+    ; 频率延时
+    MOV CX,0
+    MOV CL,FREQ
+DELAY:
+    LOOP DELAY
 
-            <div class="tool-card" onclick="window.open('https://wallhaven.cc/', '_blank')">
-                <span class="tool-icon">◈</span>
-                <h3 class="tool-title">wallhaven壁纸</h3>
-                <p class="tool-description">非常多的很nice的壁纸，但是需要一点魔法</p>
-                <div class="tool-tags">
-                    <span class="tag">生活</span>
-                </div>
-            </div>
+    ; 波形表指针自增
+    INC SI
+    CMP WAVE_TYPE,0
+    JE SQUARE_CHK
+    CMP WAVE_TYPE,1
+    JE TRI_CHK
+    CMP WAVE_TYPE,2
+    JE SIN_CHK
+SQUARE_CHK:
+    CMP SI,8
+    JE RESET_SQUARE
+    JMP MAIN_LOOP
+RESET_SQUARE:
+    MOV SI,0
+    JMP MAIN_LOOP
+TRI_CHK:
+    CMP SI,16
+    JE RESET_TRI
+    JMP MAIN_LOOP
+RESET_TRI:
+    MOV SI,0
+    JMP MAIN_LOOP
+SIN_CHK:
+    CMP SI,20
+    JE RESET_SIN
+    JMP MAIN_LOOP
+RESET_SIN:
+    MOV SI,0
+    JMP MAIN_LOOP
 
-            <div class="tool-card" onclick="window.open('https://www.4kvm.org/', '_blank')">
-                <span class="tool-icon">◈</span>
-                <h3 class="tool-title">4k影视</h3>
-                <p class="tool-description">无需多言（免费）</p>
-                <div class="tool-tags">
-                    <span class="tag">生活</span>
-                </div>
-            </div>
-        
-            
-        </div>
-    </section>
+; 波形切换按键处理
+CHANGE_WAVE:
+    INC WAVE_TYPE
+    CMP WAVE_TYPE,3
+    JE RESET_WAVE
+    JMP MAIN_LOOP
+RESET_WAVE:
+    MOV WAVE_TYPE,0
+    JMP MAIN_LOOP
 
-    <!-- ========== 笔记部分 ========== -->
-    <section class="notes-section" id="notesSection" style="display:none; padding:80px 20px; min-height:100vh;">
-        <!-- 返回按钮 -->
-        <div class="back-button" onclick="showHome()">
-            <span class="back-text">返回主页</span>
-        </div>
+; 频率调节处理
+FREQ_ADD:
+    CMP FREQ,1
+    JE MAIN_LOOP
+    DEC FREQ
+    JMP MAIN_LOOP
+FREQ_SUB:
+    CMP FREQ,20
+    JE MAIN_LOOP
+    INC FREQ
+    JMP MAIN_LOOP
 
-        <div class="tools-header">
-            <h2 class="tools-title">笔记</h2>
-            <p class="tools-subtitle">无技术可言...</p>
-        </div>
+; 8259中断服务程序（开关机）
+INT08H_PROC:
+    CLI
+    ; 关机逻辑（如跳转到停机指令）
+    MOV AX,0
+    MOV SS,AX
+    MOV SP,0FFFFH
+    HLT
+    ; EOI
+    MOV DX,204H
+    MOV AL,20H
+    OUT DX,AL
+    STI
+    IRET
 
-        <div style="max-width:900px;margin:0 auto;">
-            <div id="noteContent" style="white-space:pre-wrap;padding:18px 20px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:#e0e0e0;line-height:1.8;min-height:280px;"></div>
-            <p style="color:#777;font-size:0.9rem;margin-top:10px;">已经是页底了。难道你全看完啦！？</p>
-        </div>
-    </section>
-
-    <script>
-        // 显示工具站
-        function showTools() {
-            document.getElementById('homeSection').style.display = 'none';
-            document.getElementById('toolsSection').classList.add('active');
-            document.getElementById('notesSection').style.display = 'none';
-            window.scrollTo(0, 0);
-        }
-
-        // 返回主页
-        function showHome() {
-            document.getElementById('toolsSection').classList.remove('active');
-            document.getElementById('notesSection').style.display = 'none';
-            document.getElementById('homeSection').style.display = 'flex';
-            window.scrollTo(0, 0);
-        }
-
-        // 分类筛选
-        const tabs = document.querySelectorAll('.tab');
-        const toolCards = document.querySelectorAll('.tool-card');
-
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                tabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-
-                const category = tab.textContent.trim();
-
-                toolCards.forEach(card => {
-                    if (category === '全部') {
-                        card.style.display = 'block';
-                    } else {
-                        const tags = Array.from(card.querySelectorAll('.tag')).map(tag => tag.textContent.trim());
-                        if (tags.includes(category)) {
-                            card.style.display = 'block';
-                        } else {
-                            card.style.display = 'none';
-                        }
-                    }
-                });
-            });
-        });
-
-        // 搜索功能
-        const searchInput = document.getElementById('searchInput');
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-
-            toolCards.forEach(card => {
-                const title = card.querySelector('.tool-title').textContent.toLowerCase();
-                const description = card.querySelector('.tool-description').textContent.toLowerCase();
-                const tags = Array.from(card.querySelectorAll('.tag')).map(t => t.textContent.toLowerCase()).join(' ');
-
-                if (title.includes(searchTerm) || description.includes(searchTerm) || tags.includes(searchTerm)) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
-            });
-
-            if (searchTerm === '') {
-                const activeTab = document.querySelector('.tab.active');
-                const category = activeTab.textContent.trim();
-                
-                toolCards.forEach(card => {
-                    if (category === '全部') {
-                        card.style.display = 'block';
-                    } else {
-                        const tags = Array.from(card.querySelectorAll('.tag')).map(tag => tag.textContent.trim());
-                        if (tags.includes(category)) {
-                            card.style.display = 'block';
-                        } else {
-                            card.style.display = 'none';
-                        }
-                    }
-                });
-            }
-        });
-
-        // 显示笔记面板
-        function showNotes() {
-            document.getElementById('homeSection').style.display = 'none';
-            document.getElementById('toolsSection').classList.remove('active');
-            document.getElementById('notesSection').style.display = 'block';
-            window.scrollTo(0, 0);
-
-            const contentEl = document.getElementById('noteContent');
-            if (!contentEl) return;
-            contentEl.textContent = '正在加载日记...';
-
-            fetch('diary.txt?ts=' + Date.now())
-                .then(res => {
-                    if (!res.ok) throw new Error('无法读取 diary.txt');
-                    return res.text();
-                })
-                .then(text => {
-                    const entries = parseDiary(text);
-                    if (!entries.length) {
-                        contentEl.innerHTML = '<div class="diary-empty">暂无内容</div>';
-                        return;
-                    }
-                    contentEl.innerHTML = entries.map(renderDiaryEntry).join('');
-                    bindDiaryToggles(contentEl);
-                })
-                .catch(err => {
-                    contentEl.textContent = '未找到 diary.txt 或加载失败。请将 diary.txt 上传到与本页相同目录后再试。';
-                });
-        }
-
-        function parseDiary(text) {
-            const lines = text.split(/\r?\n/);
-            const entries = [];
-            let current = null;
-            for (const raw of lines) {
-                const line = raw; // 保留原文
-                if (/^##\s+/.test(line)) {
-                    if (current) entries.push(current);
-                    current = { date: line.replace(/^##\s+/, '').trim(), body: [] };
-                } else if (line.trim() === '---') {
-                    // 分隔线，忽略
-                } else {
-                    if (!current) {
-                        // 若开头没有标题，也归入一个默认分组
-                        current = { date: '未命名', body: [] };
-                    }
-                    current.body.push(line);
-                }
-            }
-            if (current) entries.push(current);
-            return entries;
-        }
-
-        function escapeHtml(s) {
-            return s
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/\"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function renderDiaryEntry(entry) {
-            const content = entry.body.join('\n').trim();
-            // 用 <br> 保留换行，对多行做 CSS clamp
-            const htmlContent = escapeHtml(content).replace(/\n/g, '<br>');
-            return `
-                <article class="diary-entry">
-                    <div class="diary-date">${escapeHtml(entry.date)}</div>
-                    <div class="diary-content clamped">${htmlContent}</div>
-                    <div class="diary-toggle" data-open="false">展开</div>
-                </article>
-            `;
-        }
-
-        function bindDiaryToggles(root) {
-            root.querySelectorAll('.diary-entry').forEach(entryEl => {
-                const contentEl = entryEl.querySelector('.diary-content');
-                const toggleEl = entryEl.querySelector('.diary-toggle');
-
-                // 首次判断是否需要“展开”按钮（不溢出则隐藏）
-                // 使用微任务确保渲染完成后计算高度
-                setTimeout(() => {
-                    if (contentEl.scrollHeight <= contentEl.clientHeight + 1) {
-                        // 内容本身不超过限制行数，隐藏按钮
-                        toggleEl.style.display = 'none';
-                    }
-                }, 0);
-
-                const toggle = () => {
-                    const open = toggleEl.getAttribute('data-open') === 'true';
-                    if (open) {
-                        contentEl.classList.add('clamped');
-                        toggleEl.textContent = '展开';
-                        toggleEl.setAttribute('data-open', 'false');
-                    } else {
-                        contentEl.classList.remove('clamped');
-                        toggleEl.textContent = '收起';
-                        toggleEl.setAttribute('data-open', 'true');
-                    }
-                };
-                toggleEl.addEventListener('click', toggle);
-            });
-        }
-
-        // 笔记面板：仅展示 diary.txt，无交互按钮
-    </script>
+CODE ENDS
+END START
+</pre>
 </body>
-
 </html>
