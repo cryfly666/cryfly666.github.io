@@ -1,44 +1,47 @@
-<!DOCTYPE html>
-<html>
-<body>
-<pre>
 ; 8255、DAC0832、8259波形发生器控制程序
+; 地址已确认：8255(0600H-0606H), DAC(600H), 8259(20H/21H)
 
 STACK    SEGMENT STACK
     DW 256 DUP(?)
 STACK    ENDS
 
 DATA    SEGMENT
-    STATUS      DB 0       ; 系统状态：0-关机，1-开机
-    WAVE_TYPE   DB 0       ; 波形类型：0-方波，1-锯齿波，2-三角波
-    FREQ_MODE   DB 0       ; 频率模式：0-正常，1-扩大一倍，2-缩小一倍
-    DAC_PORT    DW 0600H   ; DAC0832端口地址
-    PORT_A      EQU 60H    ; 8255端口A地址
-    PORT_B      EQU 61H    ; 8255端口B地址
-    PORT_C      EQU 62H    ; 8255端口C地址
-    PORT_CTRL   EQU 63H    ; 8255控制端口地址
-    WAVE_VALUE  DB 0       ; 当前波形值
-    DIRECTION   DB 1       ; 三角波方向：1-递增，0-递减
+    STATUS      DB 0       ; 0=关机, 1=开机
+    WAVE_TYPE   DB 0       ; 0=方波, 1=锯齿波, 2=三角波
+    FREQ_MODE   DB 0       ; 0=正常, 1=2倍频, 2=半频
+    WAVE_VALUE  DB 0       ; 三角波当前值
+    DIRECTION   DB 1       ; 1=递增, 0=递减
+    
+    ; 8255地址（已确认）
+    MY8255_A    EQU 0600H
+    MY8255_B    EQU 0602H
+    MY8255_C    EQU 0604H
+    MY8255_CON  EQU 0606H
+    
+    ; DAC0832地址（已确认600H）
+    DAC_PORT    EQU 600H
 DATA    ENDS
 
 CODE    SEGMENT
     ASSUME CS:CODE, DS:DATA, SS:STACK
 
 START:
+    ; 初始化数据段
     MOV AX, DATA
     MOV DS, AX
     
-    ; 初始化8255
-    MOV AL, 10010000B      ; 方式0，端口A输入
-    OUT PORT_CTRL, AL
+    ; 初始化8255（方式0，A口输入，B、C口输出）
+    MOV AL, 10010000B      ; 90H: A口输入，B口输出，C口输出
+    MOV DX, MY8255_CON     ; 控制口地址
+    OUT DX, AL
     
-    ; 设置中断向量
+    ; 设置中断向量（IRQ7）
     CLI
     PUSH DS
     MOV AX, 0000H
     MOV DS, AX
-    MOV AX, OFFSET IRQ7_HANDLER
-    MOV SI, 003CH
+    MOV AX, OFFSET IRQ_HANDLER
+    MOV SI, 003CH          ; IRQ7中断向量地址
     MOV [SI], AX
     MOV AX, CS
     MOV SI, 003EH
@@ -46,39 +49,45 @@ START:
     POP DS
     
     ; 初始化8259
-    MOV AL, 11H
+    MOV AL, 11H            ; ICW1
     OUT 20H, AL
-    MOV AL, 08H
+    MOV AL, 08H            ; ICW2
     OUT 21H, AL
-    MOV AL, 04H
+    MOV AL, 04H            ; ICW3
     OUT 21H, AL
-    MOV AL, 01H
+    MOV AL, 01H            ; ICW4
     OUT 21H, AL
-    MOV AL, 6FH
+    
+    ; 允许IRQ7中断
+    MOV AL, 6FH            ; 01101111B
     OUT 21H, AL
     STI
 
 MAIN_LOOP:
-    ; 读取拨码开关状态
-    IN AL, PORT_A
-    AND AL, 07H
+    ; 读取拨码开关（接8255 A口）
+    MOV DX, MY8255_A
+    IN AL, DX
+    AND AL, 07H            ; 取低3位
     
-    ; 解析波形类型（低2位）
+    ; 位0-1：波形选择（00=方波，01=锯齿波，10=三角波）
     MOV BL, AL
     AND BL, 03H
     MOV WAVE_TYPE, BL
     
-    ; 解析频率模式（第3位）
-    MOV BH, AL
-    AND BH, 04H
-    SHR BH, 2
-    MOV FREQ_MODE, BH
+    ; 位2：频率选择（0=正常，1=频率调节）
+    TEST AL, 04H
+    JZ NORMAL_FREQ
+    MOV FREQ_MODE, 1       ; 频率调节模式
+    JMP CHECK_STATUS
+NORMAL_FREQ:
+    MOV FREQ_MODE, 0
     
+CHECK_STATUS:
     ; 检查系统状态
     CMP STATUS, 0
     JE SYSTEM_OFF
     
-    ; 根据波形类型跳转
+    ; 系统开机：根据波形类型生成波形
     CMP WAVE_TYPE, 0
     JE GENERATE_SQUARE
     CMP WAVE_TYPE, 1
@@ -89,6 +98,7 @@ MAIN_LOOP:
     JMP MAIN_LOOP
 
 SYSTEM_OFF:
+    ; 关机状态：输出0V
     MOV DX, DAC_PORT
     MOV AL, 00H
     OUT DX, AL
@@ -105,32 +115,39 @@ GENERATE_SQUARE:
     JMP MAIN_LOOP
 
 GENERATE_SAWTOOTH:
-    MOV CX, 0100H
-    MOV DX, DAC_PORT
+    MOV CX, 0000H          ; 从0开始
 SAW_LOOP:
+    MOV DX, DAC_PORT
     MOV AL, CL
-    DEC AL
     OUT DX, AL
     CALL DELAY
-    LOOP SAW_LOOP
+    INC CL
+    JNZ SAW_LOOP           ; CL溢出回0时停止
     JMP MAIN_LOOP
 
 GENERATE_TRIANGLE:
     MOV DX, DAC_PORT
     MOV AL, WAVE_VALUE
     OUT DX, AL
+    
+    ; 更新三角波值
     CMP DIRECTION, 1
     JE TRI_INC
+    
+    ; 递减
     DEC AL
     CMP AL, 0
     JNE TRI_CONT
-    MOV DIRECTION, 1
+    MOV DIRECTION, 1       ; 切换到递增
     JMP TRI_CONT
+    
 TRI_INC:
+    ; 递增
     INC AL
     CMP AL, 0FFH
     JNE TRI_CONT
-    MOV DIRECTION, 0
+    MOV DIRECTION, 0       ; 切换到递减
+    
 TRI_CONT:
     MOV WAVE_VALUE, AL
     CALL DELAY
@@ -138,38 +155,38 @@ TRI_CONT:
 
 DELAY:
     PUSH CX
-    PUSH AX
-    MOV CX, 03FFH
+    MOV CX, 03FFH          ; 默认延时
+    
+    ; 根据频率模式调整延时
+    CMP FREQ_MODE, 1
+    JNE DELAY_LOOP
+    SHR CX, 1              ; 频率加倍（延时减半）
+    
 DELAY_LOOP:
     PUSH AX
     POP AX
     LOOP DELAY_LOOP
-    POP AX
     POP CX
     RET
 
-IRQ7_HANDLER:
+IRQ_HANDLER:
+    ; 中断服务程序：切换系统状态
     PUSH AX
     PUSH DS
+    
     MOV AX, DATA
     MOV DS, AX
-    XOR STATUS, 01H
+    
+    ; 切换开机/关机状态
+    XOR STATUS, 1
+    
+    ; 发送EOI命令
     MOV AL, 20H
     OUT 20H, AL
+    
     POP DS
     POP AX
     IRET
 
 CODE ENDS
 END START
-</pre>
-</body>
-</html>
-
-
-
-
-
-
-
-
