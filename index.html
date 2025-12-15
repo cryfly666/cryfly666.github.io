@@ -92,6 +92,7 @@ START:
     CALL CLEAR_SCREEN
     MOV DX, OFFSET msg_power
     CALL DISPLAY_MSG
+    CALL DISPLAY_STATUS
     
 MAIN_LOOP:
     CMP power_on, 0
@@ -222,7 +223,6 @@ READ_SWITCHES PROC NEAR
     SHR AH, 3             ; 右移3位，得到0或1
     MOV current_freq, AH   ; 保存频率选择
     
-    ; 检查状态是否有变化，有变化则更新显示
     POP DX
     POP AX
     RET
@@ -270,7 +270,8 @@ TRI_UP:
     OUT DX, AL
     CALL FREQ_DELAY
     INC BL
-    JNZ TRI_UP            ; 增加到255后自动变为0，跳出循环
+    CMP BL, 255
+    JNE TRI_UP            ; 增加到255
     
 TRI_DOWN:
     DEC BL
