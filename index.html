@@ -2,331 +2,171 @@
 <html>
 <body>
 <pre>
-;==================================================
-; 8255 + DAC0832 + 8259 波形发生器系统
-; 编译环境：MASM 5.0 以上
-; 硬件平台：8086/8088 实验箱
-;==================================================
-
 ; 端口地址定义
-PORTA       EQU 60H     ; 8255 A口地址
-PORTB       EQU 61H     ; 8255 B口地址
-PORTC       EQU 62H     ; 8255 C口地址
-CTRL_8255   EQU 63H     ; 8255 控制口地址
-DAC_PORT    EQU 64H     ; DAC0832 端口地址
-ICW1_8259   EQU 20H     ; 8259 ICW1 地址
-ICW2_8259   EQU 21H     ; 8259 ICW2/OCW1 地址
-OCW2_8259   EQU 20H     ; 8259 OCW2 地址
+PORT8255_A  EQU 0280H   ; 8255 PA口（输出至DAC0832）
+PORT8255_B  EQU 0281H   ; 8255 PB口（按键输入）
+PORT8255_C  EQU 0282H   ; 8255 PC口
+PORT8255_CTL EQU 0283H  ; 8255控制口
+PORT_DAC0832 EQU 0290H  ; DAC0832数据口
+PORT_8259_M EQU 20H     ; 主8259命令口
+PORT_8259_IM EQU 21H    ; 主8259屏蔽口
 
-; 数据段
-DATA SEGMENT
-    ; 正弦波数据表（32个点）
-    SIN_TABLE DB 128, 150, 172, 192, 210, 226, 238, 246
-              DB 250, 246, 238, 226, 210, 192, 172, 150
-              DB 128, 106, 84, 64, 46, 30, 18, 10
-              DB 6, 10, 18, 30, 46, 64, 84, 106
-    
-    ; 系统变量
-    WAVE_TYPE DB 0       ; 波形类型: 0=方波, 1=三角波, 2=正弦波
-    FREQUENCY DW 1000    ; 频率参数（延时计数）
-    POWER_FLAG DB 1      ; 电源标志: 1=开, 0=关
-    TEMP DB ?            ; 临时变量
-DATA ENDS
-
-; 堆栈段
-STACK SEGMENT STACK
-    DW 100 DUP(?)
-STACK ENDS
-
-; 代码段
-CODE SEGMENT
-    ASSUME CS:CODE, DS:DATA, SS:STACK
-
-;==================================================
-; 主程序开始
-;==================================================
-START:
-    ; 初始化段寄存器
-    MOV AX, DATA
-    MOV DS, AX
-    
-    ; 初始化堆栈
-    MOV AX, STACK
-    MOV SS, AX
-    MOV SP, 200
-    
-    ; 初始化8255
-    CALL INIT_8255
-    
-    ; 初始化8259
-    CALL INIT_8259
-    
-    ; 初始化DAC0832
-    CALL INIT_DAC
-    
-    ; 设置中断向量
-    CLI
-    MOV AX, 0
-    MOV ES, AX
-    MOV DI, 20H * 4      ; 中断类型号20H（IR0）
-    MOV AX, OFFSET POWER_ISR
+; 中断向量表设置（IRQ2对应中断号0AH）
+SET_VECTOR:
+    CLI                 ; 关中断
+    MOV AX,0
+    MOV ES,AX
+    MOV DI,0AH*4        ; 中断向量地址0000:0028H
+    MOV AX,OFFSET INT8259 ; 中断服务程序偏移地址
     STOSW
-    MOV AX, CS
+    MOV AX,SEG INT8259  ; 中断服务程序段地址
     STOSW
-    STI
-    
-    ; 主循环
+    ; 8259初始化（边沿触发、单片、非自动EOI）
+    MOV AL,13H
+    OUT PORT_8259_M,AL
+    MOV AL,08H
+    OUT PORT_8259_IM,AL
+    MOV AL,01H
+    OUT PORT_8259_M,AL
+    IN AL,PORT_8259_IM
+    AND AL,0FBH         ; 开放IR2中断（bit2置0）
+    OUT PORT_8259_IM,AL
+    ; 8255初始化：PA输出，PB输入，方式0
+    MOV AL,82H          ; 控制字：10000010B
+    OUT PORT8255_CTL,AL
+    STI                 ; 开中断
+    RET
+
+; 8259中断服务程序（开关机控制）
+INT8259:
+    PUSH AX
+    IN AL,PORT_8259_IM
+    OR AL,04H           ; 屏蔽IR2（避免重复触发）
+    OUT PORT_8259_IM,AL
+    ; 开关机逻辑：若系统运行则暂停，否则启动
+    CMP FLAG_RUN,1
+    JE  STOP_SYS
+    MOV FLAG_RUN,1
+    JMP INT_EXIT
+STOP_SYS:
+    MOV FLAG_RUN,0
+INT_EXIT:
+    MOV AL,20H          ; 发送EOI命令
+    OUT PORT_8259_M,AL
+    POP AX
+    IRET                ; 中断返回
+    ; 全局变量定义
+FLAG_RUN   DB 1         ; 运行标志（1=运行，0=暂停）
+WAVE_TYPE  DB 0         ; 波形类型（0=方波，1=三角波，2=正弦波）
+FREQ_VAL   DB 5         ; 频率系数（越大频率越低）
+
+; 主循环：读取按键+输出波形
 MAIN_LOOP:
-    ; 检查电源状态
-    CMP POWER_FLAG, 0
-    JE MAIN_LOOP         ; 如果关机，等待
-    
-    ; 读取按键
-    CALL READ_KEY
-    
-    ; 根据波形类型输出
-    CMP WAVE_TYPE, 0
-    JE OUTPUT_SQUARE
-    CMP WAVE_TYPE, 1
-    JE OUTPUT_TRIANGLE
-    CMP WAVE_TYPE, 2
-    JE OUTPUT_SINE
-    
+    CMP FLAG_RUN,0
+    JE  MAIN_LOOP       ; 系统暂停则等待
+    ; 读取8255 PB口按键
+    IN AL,PORT8255_B
+    AND AL,0FH          ; 只取PB0~PB3
+    ; 波形切换（PB0/PB1）
+    CMP AL,01H
+    JE  SET_SQUARE      ; PB0按下=方波
+    CMP AL,02H
+    JE  SET_TRIANGLE    ; PB1按下=三角波
+    CMP AL,04H
+    JE  SET_SINE        ; PB2按下=正弦波
+    ; 频率调节（PB2/PB3）
+    CMP AL,08H
+    JE  FREQ_UP         ; PB3按下=频率增加
+    ; 根据波形类型输出数据
+    CMP WAVE_TYPE,0
+    JE  OUT_SQUARE
+    CMP WAVE_TYPE,1
+    JE  OUT_TRIANGLE
+    CMP WAVE_TYPE,2
+    JE  OUT_SINE
     JMP MAIN_LOOP
 
-;==================================================
-; 输出方波
-;==================================================
-OUTPUT_SQUARE:
-    ; 输出高电平
-    MOV AL, 255
-    OUT PORTA, AL
+; 方波输出
+OUT_SQUARE:
+    MOV AL,0FFH         ; 高电平
+    OUT PORT8255_A,AL
+    OUT PORT_DAC0832,AL
+    CALL DELAY          ; 延时
+    MOV AL,00H          ; 低电平
+    OUT PORT8255_A,AL
+    OUT PORT_DAC0832,AL
     CALL DELAY
-    
-    ; 输出低电平
-    MOV AL, 0
-    OUT PORTA, AL
-    CALL DELAY
-    
     JMP MAIN_LOOP
 
-;==================================================
-; 输出三角波
-;==================================================
-OUTPUT_TRIANGLE:
-    ; 上升沿
-    MOV AL, 0
+; 三角波输出（简化版）
+OUT_TRIANGLE:
+    MOV CX,0FFH
 TRI_UP:
-    OUT PORTA, AL
-    CALL SHORT_DELAY
-    INC AL
-    CMP AL, 255
-    JNE TRI_UP
-    
-    ; 下降沿
-    MOV AL, 255
+    MOV AL,CL
+    OUT PORT8255_A,AL
+    OUT PORT_DAC0832,AL
+    CALL DELAY
+    LOOP TRI_UP
+    MOV CX,0FFH
 TRI_DOWN:
-    OUT PORTA, AL
-    CALL SHORT_DELAY
-    DEC AL
-    CMP AL, 0
-    JNE TRI_DOWN
-    
+    MOV AL,CL
+    OUT PORT8255_A,AL
+    OUT PORT_DAC0832,AL
+    CALL DELAY
+    LOOP TRI_DOWN
     JMP MAIN_LOOP
 
-;==================================================
-; 输出正弦波
-;==================================================
-OUTPUT_SINE:
-    MOV SI, OFFSET SIN_TABLE
-    MOV CX, 32           ; 32个采样点
+; 正弦波输出（预存量化表，取32个点）
+SINE_TABLE DB 80H,96H,0ADH,0C3H,0D8H,0EAH,0F9H,0FFH
+           DB 0FFH,0F9H,0EAH,0D8H,0C3H,0ADH,96H,80H
+           DB 67H,50H,3AH,25H,13H,04H,00H,00H
+           DB 04H,13H,25H,3AH,50H,67H,80H,00H
+OUT_SINE:
+    LEA SI,SINE_TABLE
+    MOV CX,32
 SINE_LOOP:
-    MOV AL, [SI]
-    OUT PORTA, AL
-    CALL SHORT_DELAY
+    MOV AL,[SI]
+    OUT PORT8255_A,AL
+    OUT PORT_DAC0832,AL
+    CALL DELAY
     INC SI
     LOOP SINE_LOOP
-    
     JMP MAIN_LOOP
 
-;==================================================
-; 初始化8255
-;==================================================
-INIT_8255 PROC
-    MOV AL, 10000010B    ; 方式0，A口输出，B口输入，C口输出
-    OUT CTRL_8255, AL
-    RET
-INIT_8255 ENDP
-
-;==================================================
-; 初始化8259
-;==================================================
-INIT_8259 PROC
-    ; ICW1
-    MOV AL, 00010011B    ; 边沿触发，单片8259，需要ICW4
-    OUT ICW1_8259, AL
-    
-    ; ICW2
-    MOV AL, 20H          ; 中断类型号基址20H
-    OUT ICW2_8259, AL
-    
-    ; ICW4
-    MOV AL, 00000001B    ; 非缓冲，自动EOI，8086模式
-    OUT ICW2_8259, AL
-    
-    ; OCW1 (屏蔽除IR0外的所有中断)
-    MOV AL, 11111110B
-    OUT ICW2_8259, AL
-    
-    RET
-INIT_8259 ENDP
-
-;==================================================
-; 初始化DAC0832
-;==================================================
-INIT_DAC PROC
-    ; 输出0V
-    MOV AL, 0
-    OUT DAC_PORT, AL
-    RET
-INIT_DAC ENDP
-
-;==================================================
-; 读取按键
-;==================================================
-READ_KEY PROC
-    IN AL, PORTB         ; 读取B口状态
-    
-    ; 检查波形切换键 (PB0)
-    TEST AL, 00000001B
-    JNZ CHECK_FREQ_UP
-    CALL CHANGE_WAVE
-    
-CHECK_FREQ_UP:
-    ; 检查频率增加键 (PB1)
-    TEST AL, 00000010B
-    JNZ CHECK_FREQ_DOWN
-    CALL INC_FREQ
-    
-CHECK_FREQ_DOWN:
-    ; 检查频率减少键 (PB2)
-    TEST AL, 00000100B
-    JNZ KEY_DONE
-    CALL DEC_FREQ
-    
-KEY_DONE:
-    RET
-READ_KEY ENDP
-
-;==================================================
-; 切换波形
-;==================================================
-CHANGE_WAVE PROC
-    ; 去抖动延时
-    CALL DELAY_10MS
-    
-    ; 切换波形类型
-    INC WAVE_TYPE
-    CMP WAVE_TYPE, 3
-    JNE WAVE_OK
-    MOV WAVE_TYPE, 0     ; 循环到0
-    
-WAVE_OK:
-    ; 用LED指示波形类型
-    MOV AL, WAVE_TYPE
-    OUT PORTC, AL
-    RET
-CHANGE_WAVE ENDP
-
-;==================================================
-; 增加频率
-;==================================================
-INC_FREQ PROC
-    CALL DELAY_10MS
-    CMP FREQUENCY, 100
-    JBE FREQ_MAX
-    SUB FREQUENCY, 100   ; 减少延时，增加频率
-FREQ_MAX:
-    RET
-INC_FREQ ENDP
-
-;==================================================
-; 减少频率
-;==================================================
-DEC_FREQ PROC
-    CALL DELAY_10MS
-    CMP FREQUENCY, 5000
-    JAE FREQ_MIN
-    ADD FREQUENCY, 100   ; 增加延时，减少频率
-FREQ_MIN:
-    RET
-DEC_FREQ ENDP
-
-;==================================================
-; 中断服务程序（开关机控制）
-;==================================================
-POWER_ISR PROC FAR
-    PUSH AX
-    
-    ; 切换电源状态
-    NOT POWER_FLAG
-    AND POWER_FLAG, 1
-    
-    ; 如果是关机，输出0V
-    CMP POWER_FLAG, 0
-    JNE POWER_ON
-    MOV AL, 0
-    OUT DAC_PORT, AL
-    MOV AL, 0
-    OUT PORTC, AL        ; 关闭LED
-    
-POWER_ON:
-    ; 发送EOI命令
-    MOV AL, 00100000B    ; 非特殊EOI
-    OUT OCW2_8259, AL
-    
-    POP AX
-    IRET
-POWER_ISR ENDP
-
-;==================================================
-; 延时子程序
-;==================================================
-DELAY PROC
+; 延时函数（由频率系数控制）
+DELAY:
     PUSH CX
-    MOV CX, FREQUENCY
-DELAY_LOOP:
-    LOOP DELAY_LOOP
+    MOV CL,FREQ_VAL
+DELAY1:
+    PUSH CX
+    MOV CX,0FFFFH
+DELAY2:
+    LOOP DELAY2
+    POP CX
+    LOOP DELAY1
     POP CX
     RET
-DELAY ENDP
 
-SHORT_DELAY PROC
-    PUSH CX
-    MOV CX, 10
-SHORT_DELAY_LOOP:
-    LOOP SHORT_DELAY_LOOP
-    POP CX
+; 按键处理子程序（波形切换/频率调节）
+SET_SQUARE:
+    MOV WAVE_TYPE,0
     RET
-SHORT_DELAY ENDP
-
-DELAY_10MS PROC
-    PUSH CX
-    MOV CX, 1000
-DELAY_10MS_LOOP:
-    LOOP DELAY_10MS_LOOP
-    POP CX
+SET_TRIANGLE:
+    MOV WAVE_TYPE,1
     RET
-DELAY_10MS ENDP
-
-;==================================================
-; 程序结束
-;==================================================
-CODE ENDS
-END START
+SET_SINE:
+    MOV WAVE_TYPE,2
+    RET
+FREQ_UP:
+    CMP FREQ_VAL,1
+    JE  FREQ_EXIT
+    DEC FREQ_VAL        ; 频率系数减小，频率升高
+FREQ_EXIT:
+    RET
 </pre>
 </body>
 </html>
+
 
 
 
