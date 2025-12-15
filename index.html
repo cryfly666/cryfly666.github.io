@@ -1,194 +1,399 @@
 <pre>
-; 8255、DAC0832、8259波形发生器控制程序
-; 地址已确认：8255(0600H-0606H), DAC(600H), 8259(20H/21H)
+    ;=============================================
+; 实验5：基于8255+DAC0832+8259的波形发生器
+; 功能：通过8255按键控制波形切换和频率调节
+;       通过8259中断实现开关机控制
+;       通过DAC0832输出波形到示波器
+;=============================================
+
+; 端口地址定义（基于常见实验箱配置）
+DAC0832   EQU 600H      ; DAC0832数据端口
+PORTA     EQU 640H      ; 8255 A口
+PORTB     EQU 642H      ; 8255 B口  
+PORTC     EQU 644H      ; 8255 C口
+CTRL_8255 EQU 646H      ; 8255控制口
+INT_MASK  EQU 21H       ; 8259中断屏蔽寄存器
+EOI       EQU 20H       ; 8259中断结束命令
+
+; 波形类型定义
+WAVE_SQUARE  EQU 0      ; 方波
+WAVE_TRIANGLE EQU 1     ; 三角波
+WAVE_SINE    EQU 2      ; 正弦波
 
 STACK    SEGMENT STACK
     DW 256 DUP(?)
 STACK    ENDS
 
 DATA    SEGMENT
-    STATUS      DB 0       ; 0=关机, 1=开机
-    WAVE_TYPE   DB 0       ; 0=方波, 1=锯齿波, 2=三角波
-    FREQ_MODE   DB 0       ; 0=正常, 1=2倍频, 2=半频
-    WAVE_VALUE  DB 0       ; 三角波当前值
-    DIRECTION   DB 1       ; 1=递增, 0=递减
+    ; 波形参数
+    wave_type DB WAVE_SQUARE     ; 当前波形类型
+    frequency DW 0100H           ; 频率参数（延时计数）
+    amplitude DB 255             ; 幅值（0-255）
     
-    ; 8255地址（已确认）
-    MY8255_A    EQU 0600H
-    MY8255_B    EQU 0602H
-    MY8255_C    EQU 0604H
-    MY8255_CON  EQU 0606H
+    ; 状态标志
+    power_on  DB 1               ; 电源状态：1=开，0=关
+    pause_flag DB 0              ; 暂停标志
     
-    ; DAC0832地址（已确认600H）
-    DAC_PORT    EQU 600H
+    ; 正弦波数据表（256点）
+    sine_table DB 128,131,134,137,140,143,146,149,152,155,158,162,165,168,171,174
+               DB 176,179,182,185,188,190,193,195,198,200,202,205,207,209,211,213
+               DB 215,217,218,220,221,223,224,225,226,227,228,229,230,230,231,231
+               DB 231,231,231,231,230,230,229,228,227,226,225,224,223,221,220,218
+               DB 217,215,213,211,209,207,205,202,200,198,195,193,190,188,185,182
+               DB 179,176,174,171,168,165,162,158,155,152,149,146,143,140,137,134
+               DB 131,128,124,121,118,115,112,109,106,103,100, 97, 93, 90, 87, 84
+               DB  81, 79, 76, 73, 70, 68, 65, 63, 60, 58, 56, 53, 51, 49, 47, 45
+               DB  43, 41, 40, 38, 37, 35, 34, 33, 32, 31, 30, 29, 28, 28, 27, 27
+               DB  27, 27, 27, 27, 28, 28, 29, 30, 31, 32, 33, 34, 35, 37, 38, 40
+               DB  41, 43, 45, 47, 49, 51, 53, 56, 58, 60, 63, 65, 68, 70, 73, 76
+               DB  79, 81, 84, 87, 90, 93, 97,100,103,106,109,112,115,118,121,124
+    
+    ; 显示信息
+    msg_power  DB 'Wave Generator: POWER ON ', '$'
+    msg_off    DB 'Wave Generator: POWER OFF', '$'
+    msg_square DB 'Square Wave', '$'
+    msg_tri    DB 'Triangle Wave', '$'
+    msg_sine   DB 'Sine Wave', '$'
+    msg_freq   DB 'Freq: ', '$'
 DATA    ENDS
 
 CODE    SEGMENT
     ASSUME CS:CODE, DS:DATA, SS:STACK
 
+;============== 主程序开始 ==============
 START:
-    ; 初始化数据段
     MOV AX, DATA
     MOV DS, AX
     
-    ; 初始化8255（方式0，A口输入，B、C口输出）
-    MOV AL, 10010000B      ; 90H: A口输入，B口输出，C口输出
-    MOV DX, MY8255_CON     ; 控制口地址
+    ; 初始化8255：A口输入（按键），B口输出，C口输出
+    MOV DX, CTRL_8255
+    MOV AL, 10010000B    ; 方式0，A口输入，B口输出，C口输出
     OUT DX, AL
     
-    ; 设置中断向量（IRQ7）
-    CLI
+    ; 初始化8259中断
+    CALL INIT_8259
+    
+    ; 初始化显示
+    CALL CLEAR_SCREEN
+    MOV DX, OFFSET msg_power
+    CALL DISPLAY_MSG
+    
+    ; 主循环
+MAIN_LOOP:
+    CMP power_on, 0
+    JE POWER_OFF_MODE
+    
+    ; 电源开启状态
+    CALL CHECK_BUTTONS      ; 检测按键
+    CALL GENERATE_WAVE      ; 生成波形
+    
+    JMP MAIN_LOOP
+
+POWER_OFF_MODE:
+    ; 电源关闭状态 - 停止输出
+    MOV DX, DAC0832
+    MOV AL, 0
+    OUT DX, AL             ; 输出0V
+    
+    ; 检查是否重新开机
+    CALL CHECK_POWER_BUTTON
+    JMP MAIN_LOOP
+
+;============== 初始化8259 ==============
+INIT_8259 PROC NEAR
+    ; 保存原始中断向量
+    PUSH ES
+    MOV AX, 350FH          ; 获取IR7（0FH）中断向量
+    INT 21H
+    MOV WORD PTR OLD_INT, BX
+    MOV WORD PTR OLD_INT+2, ES
+    
+    ; 设置新的中断向量
     PUSH DS
-    MOV AX, 0000H
+    MOV AX, CODE
     MOV DS, AX
-    MOV AX, OFFSET IRQ_HANDLER
-    MOV SI, 003CH          ; IRQ7中断向量地址
-    MOV [SI], AX
-    MOV AX, CS
-    MOV SI, 003EH
-    MOV [SI], AX
+    MOV DX, OFFSET POWER_INT_HANDLER
+    MOV AX, 250FH          ; 设置IR7中断向量
+    INT 21H
     POP DS
     
     ; 初始化8259
-    MOV AL, 11H            ; ICW1
+    CLI
+    MOV AL, 11H           ; ICW1: 边沿触发，级联，需要ICW4
     OUT 20H, AL
-    MOV AL, 08H            ; ICW2
+    MOV AL, 08H           ; ICW2: 中断类型号基值08H
     OUT 21H, AL
-    MOV AL, 04H            ; ICW3
+    MOV AL, 04H           ; ICW3: 主片IR2连接从片
     OUT 21H, AL
-    MOV AL, 01H            ; ICW4
+    MOV AL, 01H           ; ICW4: 非缓冲，正常EOI，x86模式
     OUT 21H, AL
     
-    ; 允许IRQ7中断
-    MOV AL, 6FH            ; 01101111B
+    ; 允许IR7中断
+    MOV AL, 01111111B     ; 开放IR7中断
     OUT 21H, AL
     STI
-
-MAIN_LOOP:
-    ; 读取拨码开关（接8255 A口）
-    MOV DX, MY8255_A
-    IN AL, DX
-    AND AL, 07H            ; 取低3位
-    
-    ; 位0-1：波形选择（00=方波，01=锯齿波，10=三角波）
-    MOV BL, AL
-    AND BL, 03H
-    MOV WAVE_TYPE, BL
-    
-    ; 位2：频率选择（0=正常，1=频率调节）
-    TEST AL, 04H
-    JZ NORMAL_FREQ
-    MOV FREQ_MODE, 1       ; 频率调节模式
-    JMP CHECK_STATUS
-NORMAL_FREQ:
-    MOV FREQ_MODE, 0
-    
-CHECK_STATUS:
-    ; 检查系统状态
-    CMP STATUS, 0
-    JE SYSTEM_OFF
-    
-    ; 系统开机：根据波形类型生成波形
-    CMP WAVE_TYPE, 0
-    JE GENERATE_SQUARE
-    CMP WAVE_TYPE, 1
-    JE GENERATE_SAWTOOTH
-    CMP WAVE_TYPE, 2
-    JE GENERATE_TRIANGLE
-    
-    JMP MAIN_LOOP
-
-SYSTEM_OFF:
-    ; 关机状态：输出0V
-    MOV DX, DAC_PORT
-    MOV AL, 00H
-    OUT DX, AL
-    JMP MAIN_LOOP
-
-GENERATE_SQUARE:
-    MOV DX, DAC_PORT
-    MOV AL, 0FFH
-    OUT DX, AL
-    CALL DELAY
-    MOV AL, 00H
-    OUT DX, AL
-    CALL DELAY
-    JMP MAIN_LOOP
-
-GENERATE_SAWTOOTH:
-    MOV CX, 0000H          ; 从0开始
-SAW_LOOP:
-    MOV DX, DAC_PORT
-    MOV AL, CL
-    OUT DX, AL
-    CALL DELAY
-    INC CL
-    JNZ SAW_LOOP           ; CL溢出回0时停止
-    JMP MAIN_LOOP
-
-GENERATE_TRIANGLE:
-    MOV DX, DAC_PORT
-    MOV AL, WAVE_VALUE
-    OUT DX, AL
-    
-    ; 更新三角波值
-    CMP DIRECTION, 1
-    JE TRI_INC
-    
-    ; 递减
-    DEC AL
-    CMP AL, 0
-    JNE TRI_CONT
-    MOV DIRECTION, 1       ; 切换到递增
-    JMP TRI_CONT
-    
-TRI_INC:
-    ; 递增
-    INC AL
-    CMP AL, 0FFH
-    JNE TRI_CONT
-    MOV DIRECTION, 0       ; 切换到递减
-    
-TRI_CONT:
-    MOV WAVE_VALUE, AL
-    CALL DELAY
-    JMP MAIN_LOOP
-
-DELAY:
-    PUSH CX
-    MOV CX, 03FFH          ; 默认延时
-    
-    ; 根据频率模式调整延时
-    CMP FREQ_MODE, 1
-    JNE DELAY_LOOP
-    SHR CX, 1              ; 频率加倍（延时减半）
-    
-DELAY_LOOP:
-    PUSH AX
-    POP AX
-    LOOP DELAY_LOOP
-    POP CX
+    POP ES
     RET
+INIT_8259 ENDP
 
-IRQ_HANDLER:
-    ; 中断服务程序：切换系统状态
+;============== 电源中断处理程序 ==============
+POWER_INT_HANDLER PROC FAR
     PUSH AX
-    PUSH DS
+    PUSH DX
     
-    MOV AX, DATA
-    MOV DS, AX
+    ; 切换电源状态
+    XOR power_on, 1
     
-    ; 切换开机/关机状态
-    XOR STATUS, 1
+    ; 更新显示
+    CALL CLEAR_SCREEN
+    CMP power_on, 0
+    JE SHOW_OFF_MSG
     
+    MOV DX, OFFSET msg_power
+    CALL DISPLAY_MSG
+    JMP INT_END
+    
+SHOW_OFF_MSG:
+    MOV DX, OFFSET msg_off
+    CALL DISPLAY_MSG
+    
+INT_END:
     ; 发送EOI命令
     MOV AL, 20H
     OUT 20H, AL
     
-    POP DS
+    POP DX
     POP AX
     IRET
+POWER_INT_HANDLER ENDP
 
-CODE ENDS
-END START
-<pre>
+;============== 检测按键 ==============
+CHECK_BUTTONS PROC NEAR
+    ; 读取8255 A口状态
+    MOV DX, PORTA
+    IN AL, DX
+    
+    ; 检测波形切换按钮（假设接在A0）
+    TEST AL, 00000001B
+    JZ CHECK_FREQ_UP
+    
+    ; 消抖延时
+    CALL DELAY_10MS
+    
+    ; 切换波形类型
+    INC wave_type
+    CMP wave_type, 3
+    JB UPDATE_WAVE_DISPLAY
+    MOV wave_type, 0
+    
+UPDATE_WAVE_DISPLAY:
+    CALL DISPLAY_WAVE_TYPE
+    
+CHECK_FREQ_UP:
+    ; 检测频率增加按钮（假设接在A1）
+    TEST AL, 00000010B
+    JZ CHECK_FREQ_DOWN
+    
+    CALL DELAY_10MS
+    CMP frequency, 0FF00H    ; 防止溢出
+    JAE CHECK_FREQ_DOWN
+    ADD frequency, 0100H     ; 增加频率
+    CALL DISPLAY_FREQUENCY
+    
+CHECK_FREQ_DOWN:
+    ; 检测频率减少按钮（假设接在A2）
+    TEST AL, 00000100B
+    JZ BUTTONS_END
+    
+    CALL DELAY_10MS
+    CMP frequency, 0010H     ; 最小频率限制
+    JBE BUTTONS_END
+    SUB frequency, 0100H     ; 减小频率
+    CALL DISPLAY_FREQUENCY
+    
+BUTTONS_END:
+    RET
+CHECK_BUTTONS ENDP
+
+;============== 生成波形 ==============
+GENERATE_WAVE PROC NEAR
+    CMP wave_type, WAVE_SINE
+    JE GENERATE_SINE
+    CMP wave_type, WAVE_TRIANGLE
+    JE GENERATE_TRIANGLE
+    
+    ; 生成方波
+GENERATE_SQUARE:
+    MOV DX, DAC0832
+    MOV AL, amplitude      ; 高电平
+    OUT DX, AL
+    CALL VARIABLE_DELAY    ; 半周期
+    
+    MOV AL, 0              ; 低电平
+    OUT DX, AL
+    CALL VARIABLE_DELAY    ; 半周期
+    RET
+    
+GENERATE_TRIANGLE:
+    MOV DX, DAC0832
+    MOV CX, 0              ; 递增计数
+    
+TRI_UP:
+    MOV AL, CL
+    OUT DX, AL
+    CALL VARIABLE_DELAY
+    INC CL
+    CMP CL, amplitude
+    JNE TRI_UP
+    
+TRI_DOWN:
+    DEC CL
+    MOV AL, CL
+    OUT DX, AL
+    CALL VARIABLE_DELAY
+    CMP CL, 0
+    JNE TRI_DOWN
+    RET
+    
+GENERATE_SINE:
+    MOV DX, DAC0832
+    MOV SI, OFFSET sine_table
+    MOV CX, 256            ; 256个点
+    
+SINE_LOOP:
+    MOV AL, [SI]
+    OUT DX, AL
+    CALL VARIABLE_DELAY
+    INC SI
+    LOOP SINE_LOOP
+    RET
+GENERATE_WAVE ENDP
+
+;============== 可变延时（控制频率） ==============
+VARIABLE_DELAY PROC NEAR
+    PUSH CX
+    MOV CX, frequency
+    
+DELAY_LOOP:
+    PUSH AX
+    POP AX                 ; 空操作，消耗时间
+    LOOP DELAY_LOOP
+    
+    POP CX
+    RET
+VARIABLE_DELAY ENDP
+
+;============== 10ms延时（按键消抖） ==============
+DELAY_10MS PROC NEAR
+    PUSH CX
+    MOV CX, 0FFFFH
+    
+DELAY_10MS_LOOP:
+    LOOP DELAY_10MS_LOOP
+    
+    POP CX
+    RET
+DELAY_10MS ENDP
+
+;============== 显示函数 ==============
+DISPLAY_WAVE_TYPE PROC NEAR
+    PUSH DX
+    
+    ; 移动光标到第二行
+    MOV AH, 02H
+    MOV BH, 0
+    MOV DH, 1
+    MOV DL, 0
+    INT 10H
+    
+    CMP wave_type, WAVE_SINE
+    JE SHOW_SINE
+    CMP wave_type, WAVE_TRIANGLE
+    JE SHOW_TRIANGLE
+    
+    ; 显示方波
+    MOV DX, OFFSET msg_square
+    JMP SHOW_MSG
+    
+SHOW_TRIANGLE:
+    MOV DX, OFFSET msg_tri
+    JMP SHOW_MSG
+    
+SHOW_SINE:
+    MOV DX, OFFSET msg_sine
+    
+SHOW_MSG:
+    CALL DISPLAY_MSG
+    POP DX
+    RET
+DISPLAY_WAVE_TYPE ENDP
+
+DISPLAY_FREQUENCY PROC NEAR
+    PUSH AX
+    PUSH BX
+    PUSH DX
+    
+    ; 移动光标到第三行
+    MOV AH, 02H
+    MOV BH, 0
+    MOV DH, 2
+    MOV DL, 0
+    INT 10H
+    
+    ; 显示频率信息
+    MOV DX, OFFSET msg_freq
+    CALL DISPLAY_MSG
+    
+    ; 显示频率值（简化显示）
+    MOV AX, frequency
+    MOV BX, 10
+    CALL DISPLAY_NUMBER
+    
+    POP DX
+    POP BX
+    POP AX
+    RET
+DISPLAY_FREQUENCY ENDP
+
+;============== 其他辅助函数 ==============
+DISPLAY_MSG PROC NEAR
+    PUSH AX
+    MOV AH, 09H
+    INT 21H
+    POP AX
+    RET
+DISPLAY_MSG ENDP
+
+DISPLAY_NUMBER PROC NEAR
+    ; 简单显示数字（未完全实现）
+    PUSH AX
+    ADD AL, '0'
+    MOV AH, 0EH
+    INT 10H
+    POP AX
+    RET
+DISPLAY_NUMBER ENDP
+
+CLEAR_SCREEN PROC NEAR
+    MOV AH, 06H
+    MOV AL, 0
+    MOV BH, 07H
+    MOV CX, 0
+    MOV DX, 184FH
+    INT 10H
+    
+    ; 设置光标位置
+    MOV AH, 02H
+    MOV BH, 0
+    MOV DH, 0
+    MOV DL, 0
+    INT 10H
+    RET
+CLEAR_SCREEN ENDP
+
+;============== 数据段 ==============
+OLD_INT DD ?              ; 保存原始中断向量
+
+CODE    ENDS
+    END START
+</pre>
