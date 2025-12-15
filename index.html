@@ -3,7 +3,6 @@
 <body>
 <pre>
 ; 8255、DAC0832、8259波形发生器控制程序
-; 功能：通过8259中断控制开关机，8255读取拨码开关选择波形和调节频率
 
 STACK    SEGMENT STACK
     DW 256 DUP(?)
@@ -13,12 +12,11 @@ DATA    SEGMENT
     STATUS      DB 0       ; 系统状态：0-关机，1-开机
     WAVE_TYPE   DB 0       ; 波形类型：0-方波，1-锯齿波，2-三角波
     FREQ_MODE   DB 0       ; 频率模式：0-正常，1-扩大一倍，2-缩小一倍
-    DAC_PORT    EQU 600H   ; DAC0832端口地址
+    DAC_PORT    DW 0600H   ; DAC0832端口地址
     PORT_A      EQU 60H    ; 8255端口A地址
     PORT_B      EQU 61H    ; 8255端口B地址
     PORT_C      EQU 62H    ; 8255端口C地址
     PORT_CTRL   EQU 63H    ; 8255控制端口地址
-    COUNT       DW 0       ; 延时计数器
     WAVE_VALUE  DB 0       ; 当前波形值
     DIRECTION   DB 1       ; 三角波方向：1-递增，0-递减
 DATA    ENDS
@@ -27,12 +25,11 @@ CODE    SEGMENT
     ASSUME CS:CODE, DS:DATA, SS:STACK
 
 START:
-    ; 初始化数据段
     MOV AX, DATA
     MOV DS, AX
     
     ; 初始化8255
-    MOV AL, 10010000B      ; 方式0，端口A输入，端口B输出，端口C输出
+    MOV AL, 10010000B      ; 方式0，端口A输入
     OUT PORT_CTRL, AL
     
     ; 设置中断向量
@@ -40,8 +37,8 @@ START:
     PUSH DS
     MOV AX, 0000H
     MOV DS, AX
-    MOV AX, OFFSET IRQ7_HANDLER  ; 中断服务程序地址
-    MOV SI, 003CH           ; IRQ7中断向量地址
+    MOV AX, OFFSET IRQ7_HANDLER
+    MOV SI, 003CH
     MOV [SI], AX
     MOV AX, CS
     MOV SI, 003EH
@@ -49,33 +46,31 @@ START:
     POP DS
     
     ; 初始化8259
-    MOV AL, 11H            ; ICW1：边沿触发，级联方式
+    MOV AL, 11H
     OUT 20H, AL
-    MOV AL, 08H            ; ICW2：中断类型号基址
+    MOV AL, 08H
     OUT 21H, AL
-    MOV AL, 04H            ; ICW3：主片IR2接从片
+    MOV AL, 04H
     OUT 21H, AL
-    MOV AL, 01H            ; ICW4：非缓冲方式，正常EOI
+    MOV AL, 01H
     OUT 21H, AL
-    
-    ; 设置8259中断屏蔽字，只允许IR7中断
-    MOV AL, 6FH            ; 01101111B，只允许IR7
+    MOV AL, 6FH
     OUT 21H, AL
-    
-    STI                    ; 开中断
-    
+    STI
+
 MAIN_LOOP:
-    ; 读取8255端口A的拨码开关状态
+    ; 读取拨码开关状态
     IN AL, PORT_A
-    AND AL, 07H            ; 取低3位（假设使用3个拨码开关）
+    AND AL, 07H
     
-    ; 解析拨码开关状态
+    ; 解析波形类型（低2位）
     MOV BL, AL
-    AND BL, 03H            ; 低2位选择波形类型
+    AND BL, 03H
     MOV WAVE_TYPE, BL
     
+    ; 解析频率模式（第3位）
     MOV BH, AL
-    AND BH, 04H            ; 第3位选择频率模式
+    AND BH, 04H
     SHR BH, 2
     MOV FREQ_MODE, BH
     
@@ -83,7 +78,7 @@ MAIN_LOOP:
     CMP STATUS, 0
     JE SYSTEM_OFF
     
-    ; 系统开机状态：根据选择的波形类型生成相应波形
+    ; 根据波形类型跳转
     CMP WAVE_TYPE, 0
     JE GENERATE_SQUARE
     CMP WAVE_TYPE, 1
@@ -91,115 +86,86 @@ MAIN_LOOP:
     CMP WAVE_TYPE, 2
     JE GENERATE_TRIANGLE
     
+    JMP MAIN_LOOP
+
+SYSTEM_OFF:
+    MOV DX, DAC_PORT
+    MOV AL, 00H
+    OUT DX, AL
+    JMP MAIN_LOOP
+
 GENERATE_SQUARE:
-    ; 生成方波
-    MOV AL, 0FFH           ; 方波高电平
-    OUT DAC_PORT, AL
+    MOV DX, DAC_PORT
+    MOV AL, 0FFH
+    OUT DX, AL
     CALL DELAY
-    MOV AL, 00H            ; 方波低电平
-    OUT DAC_PORT, AL
+    MOV AL, 00H
+    OUT DX, AL
     CALL DELAY
     JMP MAIN_LOOP
-    
+
 GENERATE_SAWTOOTH:
-    ; 生成锯齿波
-    MOV CX, 0FFH           ; 从0到255
+    MOV CX, 0100H
+    MOV DX, DAC_PORT
 SAW_LOOP:
     MOV AL, CL
-    OUT DAC_PORT, AL
+    DEC AL
+    OUT DX, AL
     CALL DELAY
     LOOP SAW_LOOP
     JMP MAIN_LOOP
-    
+
 GENERATE_TRIANGLE:
-    ; 生成三角波
+    MOV DX, DAC_PORT
     MOV AL, WAVE_VALUE
-    OUT DAC_PORT, AL
-    
-    ; 更新波形值
+    OUT DX, AL
     CMP DIRECTION, 1
     JE TRI_INC
-    ; 递减
     DEC AL
     CMP AL, 0
     JNE TRI_CONT
-    MOV DIRECTION, 1       ; 切换到递增
+    MOV DIRECTION, 1
     JMP TRI_CONT
 TRI_INC:
-    ; 递增
     INC AL
     CMP AL, 0FFH
     JNE TRI_CONT
-    MOV DIRECTION, 0       ; 切换到递减
+    MOV DIRECTION, 0
 TRI_CONT:
     MOV WAVE_VALUE, AL
     CALL DELAY
     JMP MAIN_LOOP
-    
-SYSTEM_OFF:
-    ; 系统关机状态：输出0V
-    MOV AL, 00H
-    OUT DAC_PORT, AL
-    JMP MAIN_LOOP
 
-; 延时子程序，根据频率模式调整延时时间
-DELAY PROC NEAR
+DELAY:
     PUSH CX
     PUSH AX
-    
-    ; 根据频率模式设置延时基数
-    MOV CX, 0FFFH          ; 默认延时
-    
-    CMP FREQ_MODE, 1
-    JE FREQ_DOUBLE         ; 频率扩大一倍，延时减半
-    CMP FREQ_MODE, 2
-    JE FREQ_HALF           ; 频率缩小一倍，延时加倍
-    
-    JMP DELAY_LOOP
-    
-FREQ_DOUBLE:
-    SHR CX, 1              ; 延时减半
-    JMP DELAY_LOOP
-    
-FREQ_HALF:
-    SHL CX, 1              ; 延时加倍
-    
+    MOV CX, 03FFH
 DELAY_LOOP:
     PUSH AX
     POP AX
     LOOP DELAY_LOOP
-    
     POP AX
     POP CX
     RET
-DELAY ENDP
 
-; IRQ7中断服务程序（开关机控制）
-IRQ7_HANDLER PROC FAR
+IRQ7_HANDLER:
     PUSH AX
     PUSH DS
-    
     MOV AX, DATA
     MOV DS, AX
-    
-    ; 切换系统状态
-    NOT STATUS
-    AND STATUS, 01H        ; 确保只有0或1
-    
-    ; 发送EOI命令
+    XOR STATUS, 01H
     MOV AL, 20H
     OUT 20H, AL
-    
     POP DS
     POP AX
     IRET
-IRQ7_HANDLER ENDP
 
 CODE ENDS
 END START
 </pre>
 </body>
 </html>
+
 
 
 
