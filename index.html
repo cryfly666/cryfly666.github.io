@@ -42,6 +42,9 @@ DATA    SEGMENT
     ; 状态标志
     power_on   DB 1              ; 电源状态：1=开，0=关
     
+    ; 保存原始中断向量
+    OLD_INT   DD ?               ; 保存原始中断向量
+    
     ; 正弦波数据表（64点）
     sine_table DB 128,140,152,164,176,187,197,207,216,224,231,237,242,246,249,251
                DB 251,251,249,246,242,237,231,224,216,207,197,187,176,164,152,140
@@ -114,12 +117,17 @@ INIT_8259 PROC NEAR
     PUSH AX
     PUSH BX
     PUSH DX
+    PUSH DS
     
     ; 获取原始中断向量（IRQ7对应的中断号通常是0FH）
     MOV AX, 350FH          ; DOS功能35H，中断号0FH
     INT 21H
-    MOV WORD PTR OLD_INT, BX
-    MOV WORD PTR OLD_INT+2, ES
+    
+    ; 保存原始中断向量到数据段
+    MOV AX, DATA
+    MOV DS, AX
+    MOV WORD PTR DS:[OLD_INT], BX
+    MOV WORD PTR DS:[OLD_INT+2], ES
     
     ; 设置新的中断向量
     MOV AX, CODE
@@ -150,13 +158,12 @@ INIT_8259 PROC NEAR
     
     STI                   ; 开中断
     
+    POP DS
     POP DX
     POP BX
     POP AX
     POP ES
     RET
-    
-OLD_INT   DD ?            ; 保存原始中断向量
 INIT_8259 ENDP
 
 ;============== 电源中断处理程序 ==============
