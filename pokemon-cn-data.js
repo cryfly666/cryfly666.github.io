@@ -153,7 +153,6 @@ const POKEMON_CN_NAMES = {
     150: '超梦',
     151: '梦幻',
     // Opponent team Pokemon (beyond Gen 1)
-    130: '暴鲤龙',
     257: '火焰鸡',
     282: '沙奈朵',
     376: '巨金怪',

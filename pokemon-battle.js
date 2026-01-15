@@ -946,7 +946,8 @@ function showConfigScreen(pokemon) {
     gameState.currentConfig = {
         pokemon: pokemon,
         selectedMoves: [],
-        evs: { hp: 0, attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0 }
+        evs: { hp: 0, attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0 },
+        evTotal: 0
     };
     
     showScreen('configScreen');
@@ -975,7 +976,8 @@ function renderAvailableMoves() {
         const moveName = moveEntry.move.name;
         const moveData = MOVE_DATA[moveName];
         
-        if (!moveData || !moveData.power) return; // Skip status moves for simplicity
+        // Skip moves without data, but allow status moves (power=0) for strategic depth
+        if (!moveData) return;
         
         const isSelected = gameState.currentConfig.selectedMoves.includes(moveName);
         
@@ -993,10 +995,11 @@ function renderAvailableMoves() {
             border-radius: 5px;
         `;
         
+        const powerText = moveData.power > 0 ? `威力: ${moveData.power}` : '变化技能';
         moveBtn.innerHTML = `
             <strong>${getCNName(moveName, 'move')}</strong> - 
             ${getCNName(moveData.type.name, 'type')} - 
-            威力: ${moveData.power}
+            ${powerText}
         `;
         
         moveBtn.onclick = () => toggleMoveSelection(moveName);
@@ -1081,21 +1084,22 @@ function renderEVSliders() {
 }
 
 function updateEV(stat, value) {
-    // Calculate total EVs
-    const currentTotal = Object.values(gameState.currentConfig.evs).reduce((a, b) => a + b, 0) - gameState.currentConfig.evs[stat];
+    // Calculate change in this stat
+    const oldValue = gameState.currentConfig.evs[stat];
+    const change = value - oldValue;
     
-    if (currentTotal + value > MAX_TOTAL_EVS) {
-        value = MAX_TOTAL_EVS - currentTotal;
+    // Check if total would exceed limit
+    if (gameState.currentConfig.evTotal + change > MAX_TOTAL_EVS) {
+        value = oldValue + (MAX_TOTAL_EVS - gameState.currentConfig.evTotal);
     }
     
     gameState.currentConfig.evs[stat] = value;
+    gameState.currentConfig.evTotal = gameState.currentConfig.evTotal - oldValue + value;
     
     // Update display
     document.getElementById(`ev-${stat}-value`).textContent = value;
-    
-    const total = Object.values(gameState.currentConfig.evs).reduce((a, b) => a + b, 0);
-    document.getElementById('evTotal').textContent = `总计: ${total}/${MAX_TOTAL_EVS}`;
-    document.getElementById('evTotal').style.color = total > MAX_TOTAL_EVS ? 'red' : 'black';
+    document.getElementById('evTotal').textContent = `总计: ${gameState.currentConfig.evTotal}/${MAX_TOTAL_EVS}`;
+    document.getElementById('evTotal').style.color = gameState.currentConfig.evTotal > MAX_TOTAL_EVS ? 'red' : 'black';
 }
 
 function saveConfiguration() {
