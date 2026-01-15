@@ -433,7 +433,7 @@ function renderMoveButtons() {
             <span class="move-name">${move.displayName}<span class="${effectivenessClass}">${effectivenessText}</span></span>
             <span class="move-info">
                 <span class="type-badge type-${move.type}">${getCNName(move.type, 'type')}</span>
-                <span>威力: ${move.power || '—'}</span>
+                <span>威力: ${move.power || '-'}</span>
             </span>
         `;
         
