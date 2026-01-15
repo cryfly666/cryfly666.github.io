@@ -909,6 +909,25 @@ body {
 .type-steel { background-color: #B8B8D0; }
 .type-fairy { background-color: #EE99AC; }
 
+/* Effectiveness Indicators */
+.effectiveness-super {
+    color: #2e7d32;
+    font-weight: 700;
+    font-size: 0.85em;
+}
+
+.effectiveness-weak {
+    color: #f57c00;
+    font-weight: 700;
+    font-size: 0.85em;
+}
+
+.effectiveness-none {
+    color: #c62828;
+    font-weight: 700;
+    font-size: 0.85em;
+}
+
 /* Team Building Styles */
 .player-team-container {
     background: rgba(255, 255, 255, 0.95);

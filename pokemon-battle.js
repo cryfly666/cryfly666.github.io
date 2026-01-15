@@ -406,17 +406,34 @@ function renderMoveButtons() {
     moveButtonsContainer.innerHTML = '';
     
     const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
+    const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     currentPlayer.moves.forEach((move, index) => {
         const button = document.createElement('button');
         button.className = 'move-btn';
         button.onclick = () => executeTurn(index);
         
+        // Calculate type effectiveness
+        const effectiveness = getTypeEffectiveness(move.type, currentOpponent.data.types);
+        let effectivenessText = '';
+        let effectivenessClass = '';
+        
+        if (effectiveness > 1) {
+            effectivenessText = ` (${effectiveness}x 效果拔群!)`;
+            effectivenessClass = 'effectiveness-super';
+        } else if (effectiveness < 1 && effectiveness > 0) {
+            effectivenessText = ` (${effectiveness}x 效果不佳)`;
+            effectivenessClass = 'effectiveness-weak';
+        } else if (effectiveness === 0) {
+            effectivenessText = ' (无效!)';
+            effectivenessClass = 'effectiveness-none';
+        }
+        
         button.innerHTML = `
-            <span class="move-name">${move.displayName}</span>
+            <span class="move-name">${move.displayName}<span class="${effectivenessClass}">${effectivenessText}</span></span>
             <span class="move-info">
                 <span class="type-badge type-${move.type}">${getCNName(move.type, 'type')}</span>
-                <span>威力: ${move.power}</span>
+                <span>威力: ${move.power || '—'}</span>
             </span>
         `;
         
