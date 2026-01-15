@@ -229,7 +229,7 @@ const POKEMON_DATA = {
             {move: {name: 'tackle'}},
             {move: {name: 'string-shot'}},
             {move: {name: 'bug-bite'}},
-            {move: {name: 'tackle'}}
+            {move: {name: 'harden'}}
         ]
     },
     11: { // Metapod
@@ -3033,9 +3033,9 @@ const POKEMON_DATA = {
         },
         moves: [
             {move: {name: 'transform'}},
-            {move: {name: 'tackle'}},
-            {move: {name: 'tackle'}},
-            {move: {name: 'tackle'}}
+            {move: {name: 'struggle'}},
+            {move: {name: 'struggle'}},
+            {move: {name: 'struggle'}}
         ]
     },
     133: { // Eevee
@@ -3478,6 +3478,7 @@ const POKEMON_DATA = {
 };
 
 const MOVE_DATA = {
+    'struggle': {name: 'Struggle', power: 50, type: {name: 'normal'}, damage_class: {name: 'physical'}, pp: 1},
     'vine-whip': {name: 'Vine Whip', power: 45, type: {name: 'grass'}, damage_class: {name: 'physical'}, pp: 25},
     'razor-leaf': {name: 'Razor Leaf', power: 55, type: {name: 'grass'}, damage_class: {name: 'physical'}, pp: 25},
     'sludge-bomb': {name: 'Sludge Bomb', power: 90, type: {name: 'poison'}, damage_class: {name: 'special'}, pp: 10},
