@@ -26,6 +26,12 @@ function getCNName(idOrName, type = 'pokemon') {
 
 // ==================== Data Structures ====================
 
+// Constants
+const MAX_TEAM_SIZE = 6;
+const GEN_1_POKEMON_LIMIT = 151;
+const MAX_EV_PER_STAT = 252;
+const MAX_TOTAL_EVS = 510;
+
 const TYPE_EFFECTIVENESS = {
     normal: { rock: 0.5, ghost: 0, steel: 0.5 },
     fire: { fire: 0.5, water: 0.5, grass: 2, ice: 2, bug: 2, rock: 0.5, dragon: 0.5, steel: 2 },
@@ -193,11 +199,18 @@ function showScreen(screenId) {
 
 // ==================== Battle Calculations ====================
 
-function calculateStats(pokemon, level = 50, evs = null) {
+function calculateStats(pokemon, level = 50, evs = { hp: 0, attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0 }) {
     const baseStats = pokemon.stats;
     
-    // Default EVs to 0 if not provided
-    const evSpread = evs || { hp: 0, attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0 };
+    // Ensure EVs is a valid object with default values
+    const evSpread = {
+        hp: evs?.hp || 0,
+        attack: evs?.attack || 0,
+        defense: evs?.defense || 0,
+        spAttack: evs?.spAttack || 0,
+        spDefense: evs?.spDefense || 0,
+        speed: evs?.speed || 0
+    };
     
     // HP calculation with EVs
     const hp = Math.floor(((2 * baseStats[0].base_stat + 31 + Math.floor(evSpread.hp / 4)) * level / 100) + level + 10);
@@ -817,13 +830,13 @@ async function displayPokemonSelection() {
 function updateTeamCounter() {
     const counter = document.getElementById('teamCounter');
     if (counter) {
-        counter.textContent = `队伍: ${gameState.teamBeingBuilt.length}/6`;
+        counter.textContent = `队伍: ${gameState.teamBeingBuilt.length}/${MAX_TEAM_SIZE}`;
     }
     
     // Show/hide start battle button
     const startBattleBtn = document.getElementById('startBattleBtn');
     if (startBattleBtn) {
-        startBattleBtn.style.display = gameState.teamBeingBuilt.length === 6 ? 'block' : 'none';
+        startBattleBtn.style.display = gameState.teamBeingBuilt.length === MAX_TEAM_SIZE ? 'block' : 'none';
     }
     
     // Update team preview
@@ -880,7 +893,7 @@ async function renderPokemonList(filter = '') {
         grid.appendChild(card);
         
         count++;
-        if (count >= 151) break; // Limit to Gen 1
+        if (count >= GEN_1_POKEMON_LIMIT) break; // Limit to Gen 1
     }
 }
 
@@ -918,7 +931,7 @@ function createPokemonCard(pokemon, index, isOpponent) {
         `;
         
         card.onclick = async () => {
-            if (gameState.teamBeingBuilt.length >= 6) {
+            if (gameState.teamBeingBuilt.length >= MAX_TEAM_SIZE) {
                 alert('队伍已满！最多6只宝可梦。');
                 return;
             }
@@ -1042,7 +1055,7 @@ function renderEVSliders() {
         const slider = document.createElement('input');
         slider.type = 'range';
         slider.min = 0;
-        slider.max = 252;
+        slider.max = MAX_EV_PER_STAT;
         slider.value = gameState.currentConfig.evs[stat];
         slider.step = 4;
         slider.style.cssText = 'width: 200px;';
@@ -1063,7 +1076,7 @@ function renderEVSliders() {
     const totalDiv = document.createElement('div');
     totalDiv.id = 'evTotal';
     totalDiv.style.cssText = 'margin: 15px 0; font-weight: bold; font-size: 18px;';
-    totalDiv.textContent = `总计: 0/510`;
+    totalDiv.textContent = `总计: 0/${MAX_TOTAL_EVS}`;
     container.appendChild(totalDiv);
 }
 
@@ -1071,8 +1084,8 @@ function updateEV(stat, value) {
     // Calculate total EVs
     const currentTotal = Object.values(gameState.currentConfig.evs).reduce((a, b) => a + b, 0) - gameState.currentConfig.evs[stat];
     
-    if (currentTotal + value > 510) {
-        value = 510 - currentTotal;
+    if (currentTotal + value > MAX_TOTAL_EVS) {
+        value = MAX_TOTAL_EVS - currentTotal;
     }
     
     gameState.currentConfig.evs[stat] = value;
@@ -1081,8 +1094,8 @@ function updateEV(stat, value) {
     document.getElementById(`ev-${stat}-value`).textContent = value;
     
     const total = Object.values(gameState.currentConfig.evs).reduce((a, b) => a + b, 0);
-    document.getElementById('evTotal').textContent = `总计: ${total}/510`;
-    document.getElementById('evTotal').style.color = total > 510 ? 'red' : 'black';
+    document.getElementById('evTotal').textContent = `总计: ${total}/${MAX_TOTAL_EVS}`;
+    document.getElementById('evTotal').style.color = total > MAX_TOTAL_EVS ? 'red' : 'black';
 }
 
 function saveConfiguration() {
@@ -1130,7 +1143,7 @@ function saveConfiguration() {
 }
 
 function startBattleWithTeam() {
-    if (gameState.teamBeingBuilt.length !== 6) {
+    if (gameState.teamBeingBuilt.length !== MAX_TEAM_SIZE) {
         alert('请先组建完整的6只宝可梦队伍！');
         return;
     }
