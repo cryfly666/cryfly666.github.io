@@ -103,6 +103,17 @@ let gameState = {
 // ==================== API Functions ====================
 
 async function fetchPokemonData(idOrName) {
+    // Try to use fallback data first if available
+    if (typeof POKEMON_DATA !== 'undefined' && POKEMON_DATA[idOrName]) {
+        return POKEMON_DATA[idOrName];
+    }
+    
+    // Check by name
+    if (typeof POKEMON_DATA !== 'undefined') {
+        const pokemonEntry = Object.values(POKEMON_DATA).find(p => p.name === idOrName);
+        if (pokemonEntry) return pokemonEntry;
+    }
+    
     try {
         const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${idOrName}`);
         if (!response.ok) throw new Error('Pokemon not found');
@@ -114,6 +125,11 @@ async function fetchPokemonData(idOrName) {
 }
 
 async function fetchMoveData(moveName) {
+    // Try to use fallback data first if available
+    if (typeof MOVE_DATA !== 'undefined' && MOVE_DATA[moveName]) {
+        return MOVE_DATA[moveName];
+    }
+    
     try {
         const response = await fetch(`https://pokeapi.co/api/v2/move/${moveName}`);
         if (!response.ok) throw new Error('Move not found');
@@ -125,6 +141,12 @@ async function fetchMoveData(moveName) {
 }
 
 async function loadPokemonList() {
+    // Try to use fallback data first if available
+    if (typeof POKEMON_LIST !== 'undefined' && POKEMON_LIST.length > 0) {
+        gameState.availablePokemon = POKEMON_LIST;
+        return POKEMON_LIST;
+    }
+    
     try {
         // Load first 151 Pokemon (Gen 1) for simplicity, can be expanded
         const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=151');
