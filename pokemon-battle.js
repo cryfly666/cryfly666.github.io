@@ -406,17 +406,34 @@ function renderMoveButtons() {
     moveButtonsContainer.innerHTML = '';
     
     const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
+    const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     currentPlayer.moves.forEach((move, index) => {
         const button = document.createElement('button');
         button.className = 'move-btn';
         button.onclick = () => executeTurn(index);
         
+        // Calculate type effectiveness
+        const effectiveness = getTypeEffectiveness(move.type, currentOpponent.data.types);
+        let effectivenessText = '';
+        let effectivenessClass = '';
+        
+        if (effectiveness > 1) {
+            effectivenessText = ` (${effectiveness}x 效果拔群!)`;
+            effectivenessClass = 'effectiveness-super';
+        } else if (effectiveness < 1 && effectiveness > 0) {
+            effectivenessText = ` (${effectiveness}x 效果不佳)`;
+            effectivenessClass = 'effectiveness-weak';
+        } else if (effectiveness === 0) {
+            effectivenessText = ' (无效!)';
+            effectivenessClass = 'effectiveness-none';
+        }
+        
         button.innerHTML = `
-            <span class="move-name">${move.displayName}</span>
+            <span class="move-name">${move.displayName}<span class="${effectivenessClass}">${effectivenessText}</span></span>
             <span class="move-info">
                 <span class="type-badge type-${move.type}">${getCNName(move.type, 'type')}</span>
-                <span>威力: ${move.power}</span>
+                <span>威力: ${move.power || '-'}</span>
             </span>
         `;
         
@@ -871,12 +888,20 @@ async function renderPokemonList(filter = '') {
     
     let count = 0;
     for (const pokemon of gameState.availablePokemon) {
-        if (searchTerm && !pokemon.name.includes(searchTerm)) {
+        // Extract ID from URL if available
+        const pokemonId = pokemon.url ? parseInt(pokemon.url.split('/').filter(Boolean).pop()) : count + 1;
+        
+        if (searchTerm && !pokemon.name.includes(searchTerm) && !getCNName(pokemonId, 'pokemon').includes(searchTerm)) {
             continue;
         }
         
         const pokemonData = await fetchPokemonData(pokemon.name);
         if (!pokemonData) continue;
+        
+        // Ensure ID is set on pokemon data
+        if (!pokemonData.id) {
+            pokemonData.id = pokemonId;
+        }
         
         if (typeFilter) {
             const hasType = pokemonData.types.some(t => t.type.name === typeFilter);
@@ -889,7 +914,8 @@ async function renderPokemonList(filter = '') {
             stats, 
             name: getCNName(pokemonData.id, 'pokemon'), 
             level: 50,
-            id: pokemonData.id
+            id: pokemonData.id,
+            number: pokemonData.id // Add Pokemon number for display
         }, null, false);
         grid.appendChild(card);
         
@@ -910,8 +936,12 @@ function createPokemonCard(pokemon, index, isOpponent) {
         pokemon.data.sprites.front_default : 
         pokemon.data.sprites.front_default;
     
+    // Add Pokemon number/ID if available
+    const numberDisplay = pokemon.number ? `<div class="pokemon-number">No.${String(pokemon.number).padStart(3, '0')}</div>` : '';
+    
     if (isOpponent) {
         card.innerHTML = `
+            ${numberDisplay}
             <img src="${sprite}" alt="${pokemon.name}" class="pokemon-image">
             <h3>${pokemon.name}</h3>
             <div class="pokemon-types">${types}</div>
@@ -922,6 +952,7 @@ function createPokemonCard(pokemon, index, isOpponent) {
         `;
     } else {
         card.innerHTML = `
+            ${numberDisplay}
             <img src="${sprite}" alt="${pokemon.name}" class="pokemon-image">
             <h3>${pokemon.name}</h3>
             <div class="pokemon-types">${types}</div>
