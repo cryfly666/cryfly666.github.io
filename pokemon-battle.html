@@ -21,7 +21,7 @@
     <div id="mainMenu" class="screen">
         <div class="menu-content">
             <h1 class="title">宝可梦对战挑战</h1>
-            <p class="subtitle">极限难度·单挑六只</p>
+            <p class="subtitle">六对六对战挑战</p>
             <div class="menu-buttons">
                 <button id="startButton" class="menu-btn">开始挑战</button>
                 <button id="viewOpponentButton" class="menu-btn">查看对手</button>
@@ -44,7 +44,16 @@
     <div id="selectionScreen" class="screen">
         <div class="back-button" onclick="showScreen('mainMenu')">← 返回</div>
         <div class="selection-content">
-            <h2 class="screen-title">选择你的宝可梦</h2>
+            <h2 class="screen-title">组建你的队伍（6只宝可梦）</h2>
+            
+            <!-- Player Team Display -->
+            <div class="player-team-container">
+                <h3 id="teamCounter">队伍: 0/6</h3>
+                <div id="teamPreview" class="player-team-grid"></div>
+                <button id="startBattleBtn" class="menu-btn" style="display:none; margin: 20px auto;">开始对战</button>
+            </div>
+
+            <!-- Pokemon Selection Grid -->
             <div class="search-box">
                 <input type="text" id="pokemonSearch" placeholder="搜索宝可梦...">
                 <select id="typeFilter">
@@ -52,6 +61,30 @@
                 </select>
             </div>
             <div id="pokemonGrid" class="pokemon-grid"></div>
+        </div>
+    </div>
+
+    <!-- Pokemon Configuration Screen (Moves and EVs) -->
+    <div id="configScreen" class="screen">
+        <div class="back-button" onclick="showScreen('selectionScreen')">← 返回队伍</div>
+        <div class="config-content">
+            <h2 class="screen-title">配置宝可梦</h2>
+            <div class="config-pokemon-display">
+                <img id="configPokemonImage" src="" alt="" style="width: 100px; height: 100px;">
+                <h3 id="configPokemonName"></h3>
+            </div>
+            
+            <!-- Move Selection -->
+            <div class="config-section">
+                <div id="availableMovesContainer"></div>
+            </div>
+            
+            <!-- EV Allocation -->
+            <div class="config-section">
+                <div id="evSlidersContainer"></div>
+            </div>
+            
+            <button id="saveConfigButton" class="menu-btn">保存配置并加入队伍</button>
         </div>
     </div>
 
@@ -73,6 +106,7 @@
                     </div>
                 </div>
                 <div class="pokemon-sprite opponent" id="opponentSprite"></div>
+                <div id="opponentTeamStatus" style="text-align: center; margin-top: 10px; font-size: 20px;"></div>
             </div>
 
             <!-- Player Pokemon -->
@@ -90,6 +124,7 @@
                         <div class="hp-text" id="playerHP">100/100</div>
                     </div>
                 </div>
+                <div id="playerTeamStatus" style="text-align: center; margin-top: 10px; font-size: 20px;"></div>
             </div>
         </div>
 
@@ -115,6 +150,7 @@
         </div>
     </div>
 
+    <script src="pokemon-cn-data.js"></script>
     <script src="pokemon-data.js"></script>
     <script src="pokemon-battle.js"></script>
 </body>
