@@ -3033,9 +3033,9 @@ const POKEMON_DATA = {
         },
         moves: [
             {move: {name: 'transform'}},
-            {move: {name: 'struggle'}},
-            {move: {name: 'struggle'}},
-            {move: {name: 'struggle'}}
+            {move: {name: 'body-slam'}},
+            {move: {name: 'shadow-ball'}},
+            {move: {name: 'psychic'}}
         ]
     },
     133: { // Eevee
