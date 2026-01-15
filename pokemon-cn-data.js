@@ -151,7 +151,14 @@ const POKEMON_CN_NAMES = {
     148: '哈克龙',
     149: '快龙',
     150: '超梦',
-    151: '梦幻'
+    151: '梦幻',
+    // Opponent team Pokemon (beyond Gen 1)
+    130: '暴鲤龙',
+    257: '火焰鸡',
+    282: '沙奈朵',
+    376: '巨金怪',
+    445: '烈咬陆鲨',
+    658: '甲贺忍蛙'
 };
 
 const TYPE_CN_NAMES = {
@@ -274,7 +281,25 @@ const MOVE_CN_NAMES = {
     'pay day': '聚宝功',
     'mimic': '模仿',
     'transform': '变身',
-    'substitute': '替身'
+    'substitute': '替身',
+    // Opponent team moves
+    'stone-edge': '尖石攻击',
+    'fire-fang': '火之牙',
+    'hydro-pump': '水炮',
+    'dark-pulse': '恶之波动',
+    'water-shuriken': '飞水手里剑',
+    'flare-blitz': '闪焰冲锋',
+    'high-jump-kick': '飞膝踢',
+    'protect': '守住',
+    'swords-dance': '剑舞',
+    'meteor-mash': '彗星拳',
+    'zen-headbutt': '意念头锤',
+    'bullet-punch': '子弹拳',
+    'waterfall': '攀瀑',
+    'ice-fang': '冰之牙',
+    'dragon-dance': '龙之舞',
+    'moonblast': '月亮之力',
+    'focus-blast': '真气弹'
 };
 
 // UI text translations
