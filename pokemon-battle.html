@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宝可梦对战挑战 - Pokemon Battle Challenge</title>
+    <link rel="stylesheet" href="pokemon-battle.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="screen active">
+        <div class="loading-content">
+            <h1>宝可梦对战挑战</h1>
+            <p>Pokemon Battle Challenge</p>
+            <div class="loading-spinner"></div>
+            <p class="loading-text">加载中...</p>
+        </div>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="mainMenu" class="screen">
+        <div class="menu-content">
+            <h1 class="title">宝可梦对战挑战</h1>
+            <p class="subtitle">极限难度·单挑六只</p>
+            <div class="menu-buttons">
+                <button id="startButton" class="menu-btn">开始挑战</button>
+                <button id="viewOpponentButton" class="menu-btn">查看对手</button>
+                <button id="backToHomeButton" class="menu-btn">返回主页</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Opponent Preview Screen -->
+    <div id="opponentScreen" class="screen">
+        <div class="back-button" onclick="showScreen('mainMenu')">← 返回</div>
+        <div class="opponent-content">
+            <h2 class="screen-title">对手阵容</h2>
+            <p class="screen-subtitle">高难度策略队伍</p>
+            <div id="opponentTeamGrid" class="pokemon-grid"></div>
+        </div>
+    </div>
+
+    <!-- Pokemon Selection Screen -->
+    <div id="selectionScreen" class="screen">
+        <div class="back-button" onclick="showScreen('mainMenu')">← 返回</div>
+        <div class="selection-content">
+            <h2 class="screen-title">选择你的宝可梦</h2>
+            <div class="search-box">
+                <input type="text" id="pokemonSearch" placeholder="搜索宝可梦...">
+                <select id="typeFilter">
+                    <option value="">全部属性</option>
+                </select>
+            </div>
+            <div id="pokemonGrid" class="pokemon-grid"></div>
+        </div>
+    </div>
+
+    <!-- Battle Screen -->
+    <div id="battleScreen" class="screen">
+        <div class="battle-field">
+            <!-- Opponent Pokemon -->
+            <div class="opponent-side">
+                <div class="pokemon-status">
+                    <div class="status-bar">
+                        <div class="pokemon-info">
+                            <span class="pokemon-name" id="opponentName">对手</span>
+                            <span class="pokemon-level" id="opponentLevel">Lv.50</span>
+                        </div>
+                        <div class="hp-bar-container">
+                            <div class="hp-bar" id="opponentHPBar"></div>
+                        </div>
+                        <div class="hp-text" id="opponentHP">100/100</div>
+                    </div>
+                </div>
+                <div class="pokemon-sprite opponent" id="opponentSprite"></div>
+            </div>
+
+            <!-- Player Pokemon -->
+            <div class="player-side">
+                <div class="pokemon-sprite player" id="playerSprite"></div>
+                <div class="pokemon-status">
+                    <div class="status-bar">
+                        <div class="pokemon-info">
+                            <span class="pokemon-name" id="playerName">你的宝可梦</span>
+                            <span class="pokemon-level" id="playerLevel">Lv.50</span>
+                        </div>
+                        <div class="hp-bar-container">
+                            <div class="hp-bar" id="playerHPBar"></div>
+                        </div>
+                        <div class="hp-text" id="playerHP">100/100</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Battle Menu -->
+        <div class="battle-menu">
+            <div id="battleLog" class="battle-log"></div>
+            <div id="actionMenu" class="action-menu">
+                <div id="moveButtons" class="move-buttons"></div>
+                <button id="forfeitButton" class="forfeit-btn">认输</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Victory/Defeat Screen -->
+    <div id="resultScreen" class="screen">
+        <div class="result-content">
+            <h1 id="resultTitle" class="result-title"></h1>
+            <p id="resultMessage" class="result-message"></p>
+            <div class="result-buttons">
+                <button onclick="location.reload()" class="menu-btn">再来一局</button>
+                <button onclick="showScreen('mainMenu')" class="menu-btn">返回菜单</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="pokemon-data.js"></script>
+    <script src="pokemon-battle.js"></script>
+</body>
+</html>
