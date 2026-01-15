@@ -53,66 +53,67 @@ const TYPE_EFFECTIVENESS = {
     fairy: { fire: 0.5, fighting: 2, poison: 0.5, dragon: 2, dark: 2, steel: 0.5 }
 };
 
-// Predefined opponent team (high difficulty strategic team)
+// Predefined opponent team (Gen 1 competitive optimal team)
+// Based on Gen 1 OU (OverUsed) tier competitive play
 const OPPONENT_TEAM = [
     { 
-        id: 445, // Garchomp
-        name: 'Garchomp',
-        level: 50,
-        nature: 'Jolly',
-        ability: 'Rough Skin',
-        item: 'Choice Scarf',
-        moves: ['earthquake', 'outrage', 'stone-edge', 'fire-fang'],
-        evs: { hp: 0, attack: 252, defense: 0, spAttack: 0, spDefense: 4, speed: 252 }
-    },
-    {
-        id: 658, // Greninja
-        name: 'Greninja',
+        id: 150, // Mewtwo - Special Sweeper
+        name: 'Mewtwo',
         level: 50,
         nature: 'Timid',
-        ability: 'Protean',
+        ability: 'Pressure',
         item: 'Life Orb',
-        moves: ['hydro-pump', 'ice-beam', 'dark-pulse', 'water-shuriken'],
+        moves: ['psychic', 'ice-beam', 'thunderbolt', 'fire-blast'],
         evs: { hp: 0, attack: 0, defense: 0, spAttack: 252, spDefense: 4, speed: 252 }
     },
     {
-        id: 257, // Blaziken
-        name: 'Blaziken',
+        id: 65, // Alakazam - Fast Special Attacker
+        name: 'Alakazam',
         level: 50,
-        nature: 'Adamant',
-        ability: 'Speed Boost',
-        item: 'Blazikenite',
-        moves: ['flare-blitz', 'high-jump-kick', 'protect', 'swords-dance'],
-        evs: { hp: 0, attack: 252, defense: 0, spAttack: 0, spDefense: 4, speed: 252 }
+        nature: 'Timid',
+        ability: 'Magic Guard',
+        item: 'Focus Sash',
+        moves: ['psychic', 'psybeam', 'recover', 'thunder-wave'],
+        evs: { hp: 0, attack: 0, defense: 0, spAttack: 252, spDefense: 4, speed: 252 }
     },
     {
-        id: 376, // Metagross
-        name: 'Metagross',
+        id: 143, // Snorlax - Tank/Wall
+        name: 'Snorlax',
         level: 50,
         nature: 'Adamant',
-        ability: 'Clear Body',
-        item: 'Assault Vest',
-        moves: ['meteor-mash', 'earthquake', 'zen-headbutt', 'bullet-punch'],
+        ability: 'Thick Fat',
+        item: 'Leftovers',
+        moves: ['body-slam', 'earthquake', 'rest', 'amnesia'],
         evs: { hp: 252, attack: 252, defense: 0, spAttack: 0, spDefense: 4, speed: 0 }
     },
     {
-        id: 130, // Gyarados
-        name: 'Gyarados',
+        id: 131, // Lapras - Bulky Water
+        name: 'Lapras',
         level: 50,
-        nature: 'Jolly',
-        ability: 'Intimidate',
-        item: 'Leftovers',
-        moves: ['waterfall', 'ice-fang', 'dragon-dance', 'substitute'],
-        evs: { hp: 0, attack: 252, defense: 0, spAttack: 0, spDefense: 4, speed: 252 }
+        nature: 'Modest',
+        ability: 'Water Absorb',
+        item: 'Assault Vest',
+        moves: ['surf', 'ice-beam', 'thunderbolt', 'hydro-pump'],
+        evs: { hp: 252, attack: 0, defense: 0, spAttack: 252, spDefense: 4, speed: 0 }
     },
     {
-        id: 282, // Gardevoir
-        name: 'Gardevoir',
+        id: 103, // Exeggutor - Special Attacker with Sleep
+        name: 'Exeggutor',
+        level: 50,
+        nature: 'Modest',
+        ability: 'Chlorophyll',
+        item: 'Choice Specs',
+        moves: ['psychic', 'solar-beam', 'sleep-powder', 'explosion'],
+        evs: { hp: 0, attack: 0, defense: 0, spAttack: 252, spDefense: 4, speed: 252 }
+    },
+    {
+        id: 94, // Gengar - Fast Ghost/Poison
+        name: 'Gengar',
         level: 50,
         nature: 'Timid',
-        ability: 'Trace',
-        item: 'Choice Specs',
-        moves: ['psychic', 'moonblast', 'thunderbolt', 'focus-blast'],
+        ability: 'Levitate',
+        item: 'Life Orb',
+        moves: ['shadow-ball', 'sludge-bomb', 'thunderbolt', 'ice-punch'],
         evs: { hp: 0, attack: 0, defense: 0, spAttack: 252, spDefense: 4, speed: 252 }
     }
 ];
