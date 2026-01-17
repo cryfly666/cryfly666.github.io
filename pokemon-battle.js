@@ -584,6 +584,27 @@ function getModifiedStat(pokemon, statName) {
         modifiedStat = Math.floor(modifiedStat * 1.5);
     }
     
+    // Apply ability effects
+    if (statName === 'speed') {
+        // Chlorophyll doubles speed in sun
+        if (pokemon.ability === 'Chlorophyll' && gameState.weather === WEATHER_CONDITIONS.SUN) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Swift Swim doubles speed in rain
+        if (pokemon.ability === 'Swift Swim' && gameState.weather === WEATHER_CONDITIONS.RAIN) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Sand Rush doubles speed in sandstorm
+        if (pokemon.ability === 'Sand Rush' && gameState.weather === WEATHER_CONDITIONS.SANDSTORM) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+    }
+    
+    // Apply item effects - Choice Scarf
+    if (statName === 'speed' && pokemon.item === 'Choice Scarf') {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
     return modifiedStat;
 }
 
@@ -595,24 +616,53 @@ async function calculateDamage(attacker, defender, move) {
     let power = moveData.power;
     
     // Get modified stats (with stat changes, status, weather)
-    const attackStat = moveData.damage_class.name === 'physical' ? 
+    let attackStat = moveData.damage_class.name === 'physical' ? 
         getModifiedStat(attacker, 'attack') : 
         getModifiedStat(attacker, 'spAttack');
-    const defenseStat = moveData.damage_class.name === 'physical' ? 
+    let defenseStat = moveData.damage_class.name === 'physical' ? 
         getModifiedStat(defender, 'defense') : 
         getModifiedStat(defender, 'spDefense');
+    
+    // Ability effects on stats
+    if (defender.ability === 'Thick Fat' && (moveData.type.name === 'fire' || moveData.type.name === 'ice')) {
+        power = Math.floor(power * 0.5);
+    }
+    
+    // Item effects - Assault Vest
+    if (defender.item === 'Assault Vest' && moveData.damage_class.name === 'special') {
+        defenseStat = Math.floor(defenseStat * 1.5);
+    }
+    
+    // Item effects - Choice Specs/Band
+    if (attacker.item === 'Choice Specs' && moveData.damage_class.name === 'special') {
+        attackStat = Math.floor(attackStat * 1.5);
+    } else if (attacker.item === 'Choice Band' && moveData.damage_class.name === 'physical') {
+        attackStat = Math.floor(attackStat * 1.5);
+    }
     
     // Check STAB (Same Type Attack Bonus)
     const stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
     
     // Type effectiveness
-    const effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
+    let effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
+    
+    // Ability: Levitate - immune to ground moves
+    if (defender.ability === 'Levitate' && moveData.type.name === 'ground') {
+        effectiveness = 0;
+    }
+    
+    // Ability: Water Absorb - immune to water moves and heal
+    if (defender.ability === 'Water Absorb' && moveData.type.name === 'water') {
+        effectiveness = 0;
+        // Heal will be applied separately
+    }
     
     // Weather effects
     let weatherMultiplier = 1;
     if (gameState.weather === WEATHER_CONDITIONS.SUN) {
         if (moveData.type.name === 'fire') weatherMultiplier = 1.5;
         if (moveData.type.name === 'water') weatherMultiplier = 0.5;
+        // Chlorophyll doubles speed in sun (handled in getModifiedStat)
     } else if (gameState.weather === WEATHER_CONDITIONS.RAIN) {
         if (moveData.type.name === 'water') weatherMultiplier = 1.5;
         if (moveData.type.name === 'fire') weatherMultiplier = 0.5;
@@ -626,7 +676,12 @@ async function calculateDamage(attacker, defender, move) {
     
     // Damage formula (Gen VI formula)
     const baseDamage = ((2 * level / 5 + 2) * power * attackStat / defenseStat / 50 + 2);
-    const damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * random * critical);
+    let damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * random * critical);
+    
+    // Life Orb boosts damage by 30%
+    if (attacker.item === 'Life Orb' && damage > 0) {
+        damage = Math.floor(damage * 1.3);
+    }
     
     return {
         damage: Math.max(1, damage),
@@ -725,7 +780,9 @@ async function initializeBattle() {
                 statusTurns: 0,
                 confusionTurns: 0,
                 substituteHP: 0,
-                protectUsed: false
+                protectUsed: false,
+                ability: opponentData.ability,
+                item: opponentData.item
             });
         }
     }
@@ -1344,6 +1401,17 @@ async function executeAttack(attacker, move) {
                 await sleep(300);
             }
         }
+        
+        // Life Orb recoil (10% of max HP)
+        if (attackerPokemon.item === 'Life Orb' && !attackerPokemon.fainted) {
+            const recoil = Math.floor(attackerPokemon.maxHP * 0.1);
+            attackerPokemon.currentHP = Math.max(0, attackerPokemon.currentHP - recoil);
+            updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+            document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
+            addLog(`${attackerPokemon.name} 受到了生命宝珠的反伤！`);
+            await sleep(300);
+        }
     }
     
     // Check if Pokemon fainted
@@ -1845,7 +1913,9 @@ function saveConfiguration() {
         statusTurns: 0,
         confusionTurns: 0,
         substituteHP: 0,
-        protectUsed: false
+        protectUsed: false,
+        ability: 'None', // Default ability - could be customized later
+        item: 'None' // Default item - could be customized later
     });
     
     updateTeamCounter();
