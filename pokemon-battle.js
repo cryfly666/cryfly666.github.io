@@ -213,6 +213,136 @@ async function fetchMoveData(moveName) {
     }
 }
 
+// Get move priority (for turn order)
+function getMovePriority(moveName) {
+    // Priority moves go first regardless of speed
+    const priorityMoves = {
+        'quick-attack': 1,
+        'aqua-jet': 1,
+        'mach-punch': 1,
+        'bullet-punch': 2,
+        'accelerock': 2,
+        'ice-shard': 1,
+        'shadow-sneak': 1,
+        'sucker-punch': 1,
+        'extremespeed': 2,
+        'fake-out': 3,
+        'first-impression': 2,
+        'water-shuriken': 1,
+        'protect': 4,
+        'detect': 4,
+        'endure': 4
+    };
+    
+    return priorityMoves[moveName] || 0;
+}
+
+// Apply move special effects
+async function applyMoveEffects(attacker, defender, move, moveData) {
+    const effects = [];
+    
+    // Status effect moves
+    if (moveData.name === 'Thunder Wave' || moveData.name === 'thunder-wave') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Will-O-Wisp' || moveData.name === 'will-o-wisp') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Toxic' || moveData.name === 'toxic') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.BADLY_POISON)) {
+            effects.push(`${defender.name} 中了剧毒！`);
+        }
+    } else if (moveData.name === 'Poison Powder' || moveData.name === 'poison-powder') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.POISON)) {
+            effects.push(`${defender.name} 中毒了！`);
+        }
+    } else if (moveData.name === 'Sleep Powder' || moveData.name === 'sleep-powder' || moveData.name === 'Hypnosis' || moveData.name === 'hypnosis') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.SLEEP)) {
+            effects.push(`${defender.name} 睡着了！`);
+        }
+    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冰冻了！`);
+        }
+    } else if (moveData.name === 'Flamethrower' || moveData.name === 'flamethrower' || moveData.name === 'Fire Blast' || moveData.name === 'fire-blast') {
+        // 10% chance to burn
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Thunderbolt' || moveData.name === 'thunderbolt' || moveData.name === 'Thunder' || moveData.name === 'thunder') {
+        // 10% chance to paralyze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    }
+    
+    // Stat-changing moves
+    if (moveData.name === 'Swords Dance' || moveData.name === 'swords-dance') {
+        const msg = changeStatStage(attacker, 'attack', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Dragon Dance' || moveData.name === 'dragon-dance') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'speed', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Amnesia' || moveData.name === 'amnesia') {
+        const msg = changeStatStage(attacker, 'spDefense', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Growl' || moveData.name === 'growl') {
+        const msg = changeStatStage(defender, 'attack', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Tail Whip' || moveData.name === 'tail-whip') {
+        const msg = changeStatStage(defender, 'defense', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'String Shot' || moveData.name === 'string-shot') {
+        const msg = changeStatStage(defender, 'speed', -1);
+        if (msg) effects.push(msg);
+    }
+    
+    // Confusion
+    if (moveData.name === 'Confuse Ray' || moveData.name === 'confuse-ray' || moveData.name === 'Supersonic' || moveData.name === 'supersonic') {
+        if (applyVolatileStatus(defender, VOLATILE_STATUS.CONFUSION)) {
+            effects.push(`${defender.name} 混乱了！`);
+            defender.confusionTurns = 0;
+        }
+    }
+    
+    // Weather-setting moves
+    if (moveData.name === 'Sunny Day' || moveData.name === 'sunny-day') {
+        gameState.weather = WEATHER_CONDITIONS.SUN;
+        gameState.weatherTurns = 5;
+        effects.push('阳光变得很强烈！');
+    } else if (moveData.name === 'Rain Dance' || moveData.name === 'rain-dance') {
+        gameState.weather = WEATHER_CONDITIONS.RAIN;
+        gameState.weatherTurns = 5;
+        effects.push('开始下雨了！');
+    } else if (moveData.name === 'Sandstorm' || moveData.name === 'sandstorm') {
+        gameState.weather = WEATHER_CONDITIONS.SANDSTORM;
+        gameState.weatherTurns = 5;
+        effects.push('沙暴开始了！');
+    } else if (moveData.name === 'Hail' || moveData.name === 'hail') {
+        gameState.weather = WEATHER_CONDITIONS.HAIL;
+        gameState.weatherTurns = 5;
+        effects.push('开始下冰雹了！');
+    }
+    
+    // Protect
+    if (moveData.name === 'Protect' || moveData.name === 'protect' || moveData.name === 'Detect' || moveData.name === 'detect') {
+        if (!attacker.protectUsed) {
+            applyVolatileStatus(attacker, VOLATILE_STATUS.PROTECT);
+            effects.push(`${attacker.name} 保护了自己！`);
+            attacker.protectUsed = true;
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
+    
+    return effects;
+}
+
 async function loadPokemonList() {
     // Try to use fallback data first if available
     if (typeof POKEMON_LIST !== 'undefined' && POKEMON_LIST.length > 0) {
@@ -819,18 +949,36 @@ async function executeTurn(moveIndex) {
     const playerMove = currentPlayer.moves[moveIndex];
     const opponentMove = selectAIMove(currentOpponent, currentPlayer);
     
-    // Determine turn order based on speed (with stat modifications)
+    // Get move priorities
+    const playerPriority = getMovePriority(playerMove.name);
+    const opponentPriority = getMovePriority(opponentMove.name);
+    
+    // Determine turn order based on priority, then speed
     const playerSpeed = getModifiedStat(currentPlayer, 'speed');
     const opponentSpeed = getModifiedStat(currentOpponent, 'speed');
     
     let firstAttacker, firstMove, secondAttacker, secondMove;
     
-    if (playerSpeed > opponentSpeed) {
+    if (playerPriority > opponentPriority) {
+        // Player has priority
+        firstAttacker = 'player';
+        firstMove = playerMove;
+        secondAttacker = 'opponent';
+        secondMove = opponentMove;
+    } else if (opponentPriority > playerPriority) {
+        // Opponent has priority
+        firstAttacker = 'opponent';
+        firstMove = opponentMove;
+        secondAttacker = 'player';
+        secondMove = playerMove;
+    } else if (playerSpeed > opponentSpeed) {
+        // Same priority, player faster
         firstAttacker = 'player';
         firstMove = playerMove;
         secondAttacker = 'opponent';
         secondMove = opponentMove;
     } else if (playerSpeed < opponentSpeed) {
+        // Same priority, opponent faster
         firstAttacker = 'opponent';
         firstMove = opponentMove;
         secondAttacker = 'player';
@@ -1057,6 +1205,10 @@ async function applyEndOfTurnEffects() {
     if (currentOpponent.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
         removeVolatileStatus(currentOpponent, VOLATILE_STATUS.PROTECT);
     }
+    
+    // Reset protect success flag if not used this turn
+    currentPlayer.protectUsed = false;
+    currentOpponent.protectUsed = false;
 }
         await handleForcedSwitch('player');
     } else if (secondAttacker === 'opponent' && secondAttackerPokemon.fainted) {
@@ -1122,6 +1274,14 @@ async function executeAttack(attacker, move) {
         gameState.opponentTeam[gameState.currentOpponentIndex] : 
         gameState.playerTeam[gameState.currentPlayerIndex];
     
+    // Check if defender is protected
+    if (defenderPokemon.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        addLog(`${attackerPokemon.name} 使用了 ${move.displayName}！`);
+        await sleep(300);
+        addLog(`${defenderPokemon.name} 保护了自己！`);
+        return;
+    }
+    
     // Animation
     const sprite = document.getElementById(`${attacker}Sprite`);
     sprite.classList.add('attacking');
@@ -1131,39 +1291,65 @@ async function executeAttack(attacker, move) {
     await sleep(300);
     sprite.classList.remove('attacking');
     
-    // Calculate damage
+    // Get move data for special effects
+    const moveData = await fetchMoveData(move.name);
+    
+    // Check if this is a status move (no damage)
+    if (moveData && moveData.damage_class && moveData.damage_class.name === 'status') {
+        // Apply special effects
+        const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData);
+        for (const effect of effects) {
+            addLog(effect);
+            await sleep(300);
+        }
+        return;
+    }
+    
+    // Calculate damage for attacking moves
     const result = await calculateDamage(attackerPokemon, defenderPokemon, move);
     
     // Apply damage
-    defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
-    
-    // Update display
-    updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
-    document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
-        `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
-    
-    // Damage animation
-    const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
-    defenderSprite.classList.add('taking-damage');
-    
-    // Show effectiveness
-    if (result.critical) {
-        addLog('会心一击！');
+    if (result.damage > 0) {
+        defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
+        
+        // Update display
+        updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
+        document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
+            `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
+        
+        // Damage animation
+        const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
+        defenderSprite.classList.add('taking-damage');
+        
+        // Show effectiveness
+        if (result.critical) {
+            addLog('会心一击！');
+        }
+        if (result.effectiveness > 1) {
+            addLog('效果拔群！');
+        } else if (result.effectiveness < 1 && result.effectiveness > 0) {
+            addLog('效果不理想...');
+        } else if (result.effectiveness === 0) {
+            addLog('对方没有受到伤害...');
+        }
+        
+        await sleep(500);
+        defenderSprite.classList.remove('taking-damage');
+        
+        // Apply secondary effects (for attacking moves with additional effects)
+        if (moveData) {
+            const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData);
+            for (const effect of effects) {
+                addLog(effect);
+                await sleep(300);
+            }
+        }
     }
-    if (result.effectiveness > 1) {
-        addLog('效果拔群！');
-    } else if (result.effectiveness < 1 && result.effectiveness > 0) {
-        addLog('效果不理想...');
-    } else if (result.effectiveness === 0) {
-        addLog('对方没有受到伤害...');
-    }
-    
-    await sleep(500);
-    defenderSprite.classList.remove('taking-damage');
     
     // Check if Pokemon fainted
     if (defenderPokemon.currentHP === 0) {
         defenderPokemon.fainted = true;
+        const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
         defenderSprite.classList.add('fainted');
         addLog(`${defenderPokemon.name} 失去了战斗能力！`);
         await sleep(800);
