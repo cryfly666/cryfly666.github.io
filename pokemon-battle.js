@@ -399,6 +399,42 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
         effects.push('开始下冰雹了！');
     }
     
+    // Terrain-setting moves
+    if (moveData.name === 'Electric Terrain' || moveData.name === 'electric-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.ELECTRIC;
+        gameState.terrainTurns = 5;
+        effects.push('脚下涌起了电流！');
+    } else if (moveData.name === 'Grassy Terrain' || moveData.name === 'grassy-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.GRASSY;
+        gameState.terrainTurns = 5;
+        effects.push('脚下的草生长茂盛了！');
+    } else if (moveData.name === 'Misty Terrain' || moveData.name === 'misty-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.MISTY;
+        gameState.terrainTurns = 5;
+        effects.push('脚下被雾笼罩了！');
+    } else if (moveData.name === 'Psychic Terrain' || moveData.name === 'psychic-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.PSYCHIC;
+        gameState.terrainTurns = 5;
+        effects.push('脚下变得很奇怪！');
+    }
+    
+    // Flinch-inducing moves (30% chance for most)
+    if (moveData.name === 'Fake Out' || moveData.name === 'fake-out') {
+        // Fake Out always flinches on first turn
+        if (gameState.turnCount === 1) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Air Slash' || moveData.name === 'air-slash' ||
+               moveData.name === 'Iron Head' || moveData.name === 'iron-head' ||
+               moveData.name === 'Zen Headbutt' || moveData.name === 'zen-headbutt') {
+        // 30% flinch chance
+        if (Math.random() < 0.3) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    }
+    
     // Protect
     if (moveData.name === 'Protect' || moveData.name === 'protect' || moveData.name === 'Detect' || moveData.name === 'detect') {
         if (!attacker.protectUsed) {
@@ -549,6 +585,11 @@ function getStatusDamage(pokemon) {
 }
 
 function canMove(pokemon) {
+    // Check if Pokemon flinched
+    if (pokemon.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        return { canMove: false, message: `${pokemon.name} 畏缩了！` };
+    }
+    
     // Check if Pokemon is frozen
     if (pokemon.status === STATUS_CONDITIONS.FREEZE) {
         // 20% chance to thaw
@@ -738,6 +779,36 @@ async function calculateDamage(attacker, defender, move) {
         if (moveData.type.name === 'fire') weatherMultiplier = 0.5;
     }
     
+    // Terrain effects
+    let terrainMultiplier = 1;
+    // Check if Pokemon is grounded (not flying type or Levitate)
+    const isGrounded = !attacker.data.types.some(t => t.type.name === 'flying') && 
+                       attacker.ability !== 'Levitate';
+    
+    if (isGrounded) {
+        if (gameState.terrain === TERRAIN_CONDITIONS.ELECTRIC && moveData.type.name === 'electric') {
+            terrainMultiplier = 1.3;
+        } else if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY && moveData.type.name === 'grass') {
+            terrainMultiplier = 1.3;
+        } else if (gameState.terrain === TERRAIN_CONDITIONS.PSYCHIC && moveData.type.name === 'psychic') {
+            terrainMultiplier = 1.3;
+        }
+        
+        // Grassy Terrain reduces Earthquake damage
+        if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY && moveData.name === 'earthquake') {
+            terrainMultiplier = 0.5;
+        }
+    }
+    
+    // Misty Terrain reduces dragon move damage to grounded targets
+    if (gameState.terrain === TERRAIN_CONDITIONS.MISTY && moveData.type.name === 'dragon') {
+        const defenderGrounded = !defender.data.types.some(t => t.type.name === 'flying') && 
+                                 defender.ability !== 'Levitate';
+        if (defenderGrounded) {
+            terrainMultiplier = 0.5;
+        }
+    }
+    
     // Random factor (85-100%)
     const random = (Math.random() * 0.15 + 0.85);
     
@@ -746,7 +817,7 @@ async function calculateDamage(attacker, defender, move) {
     
     // Damage formula (Gen VI formula)
     const baseDamage = ((2 * level / 5 + 2) * power * attackStat / defenseStat / 50 + 2);
-    let damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * random * critical);
+    let damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * terrainMultiplier * random * critical);
     
     // Life Orb boosts damage by 30%
     if (attacker.item === 'Life Orb' && damage > 0) {
@@ -1382,6 +1453,63 @@ async function applyEndOfTurnEffects() {
         removeVolatileStatus(currentOpponent, VOLATILE_STATUS.PROTECT);
     }
     
+    // Clear flinch status (only lasts one turn)
+    if (currentPlayer.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        removeVolatileStatus(currentPlayer, VOLATILE_STATUS.FLINCH);
+    }
+    if (currentOpponent.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        removeVolatileStatus(currentOpponent, VOLATILE_STATUS.FLINCH);
+    }
+    
+    // Terrain effects
+    if (gameState.terrain !== TERRAIN_CONDITIONS.NONE) {
+        gameState.terrainTurns--;
+        
+        // Grassy Terrain healing
+        if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY) {
+            const playerGrounded = !currentPlayer.fainted && 
+                                   !currentPlayer.data.types.some(t => t.type.name === 'flying') && 
+                                   currentPlayer.ability !== 'Levitate';
+            if (playerGrounded) {
+                const heal = Math.floor(currentPlayer.maxHP / 16);
+                const actualHeal = Math.min(heal, currentPlayer.maxHP - currentPlayer.currentHP);
+                if (actualHeal > 0) {
+                    currentPlayer.currentHP = Math.min(currentPlayer.maxHP, currentPlayer.currentHP + heal);
+                    updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                    document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                    addLog(`${currentPlayer.name} 被青草场地治愈了！`);
+                    await sleep(500);
+                }
+            }
+            
+            const opponentGrounded = !currentOpponent.fainted && 
+                                     !currentOpponent.data.types.some(t => t.type.name === 'flying') && 
+                                     currentOpponent.ability !== 'Levitate';
+            if (opponentGrounded) {
+                const heal = Math.floor(currentOpponent.maxHP / 16);
+                const actualHeal = Math.min(heal, currentOpponent.maxHP - currentOpponent.currentHP);
+                if (actualHeal > 0) {
+                    currentOpponent.currentHP = Math.min(currentOpponent.maxHP, currentOpponent.currentHP + heal);
+                    updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                    document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                    addLog(`${currentOpponent.name} 被青草场地治愈了！`);
+                    await sleep(500);
+                }
+            }
+        }
+        
+        if (gameState.terrainTurns <= 0) {
+            const terrainNames = {
+                [TERRAIN_CONDITIONS.ELECTRIC]: '电气场地',
+                [TERRAIN_CONDITIONS.GRASSY]: '青草场地',
+                [TERRAIN_CONDITIONS.MISTY]: '薄雾场地',
+                [TERRAIN_CONDITIONS.PSYCHIC]: '精神场地'
+            };
+            addLog(`${terrainNames[gameState.terrain]} 消失了！`);
+            gameState.terrain = TERRAIN_CONDITIONS.NONE;
+        }
+    }
+    
     // Reset protect success flag if not used this turn
     currentPlayer.protectUsed = false;
     currentOpponent.protectUsed = false;
@@ -1458,6 +1586,22 @@ async function executeAttack(attacker, move) {
         return;
     }
     
+    // Get move data for priority check
+    const moveData = await fetchMoveData(move.name);
+    const movePriority = getMovePriority(move.name);
+    
+    // Psychic Terrain blocks priority moves against grounded Pokemon
+    if (gameState.terrain === TERRAIN_CONDITIONS.PSYCHIC && movePriority > 0) {
+        const defenderGrounded = !defenderPokemon.data.types.some(t => t.type.name === 'flying') && 
+                                 defenderPokemon.ability !== 'Levitate';
+        if (defenderGrounded) {
+            addLog(`${attackerPokemon.name} 使用了 ${move.displayName}！`);
+            await sleep(300);
+            addLog(`精神场地阻止了先制招式！`);
+            return;
+        }
+    }
+    
     // Animation
     const sprite = document.getElementById(`${attacker}Sprite`);
     sprite.classList.add('attacking');
@@ -1466,9 +1610,6 @@ async function executeAttack(attacker, move) {
     
     await sleep(300);
     sprite.classList.remove('attacking');
-    
-    // Get move data for special effects
-    const moveData = await fetchMoveData(move.name);
     
     // Check if this is a status move (no damage)
     if (moveData && moveData.damage_class && moveData.damage_class.name === 'status') {
