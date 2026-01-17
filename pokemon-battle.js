@@ -28,7 +28,7 @@ function getCNName(idOrName, type = 'pokemon') {
 
 // Constants
 const MAX_TEAM_SIZE = 6;
-const GEN_1_POKEMON_LIMIT = 151;
+const MAX_POKEMON_ID = 1025; // Total number of Pokemon (Gen 1-9)
 const MAX_EV_PER_STAT = 252;
 const MAX_TOTAL_EVS = 510;
 
@@ -221,8 +221,8 @@ async function loadPokemonList() {
     }
     
     try {
-        // Load first 151 Pokemon (Gen 1) for simplicity, can be expanded
-        const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=151');
+        // Load all Pokemon (Gen 1-9, 1025 total)
+        const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=1025');
         const data = await response.json();
         gameState.availablePokemon = data.results;
         return data.results;
@@ -1351,13 +1351,15 @@ async function renderPokemonList(filter = '') {
     };
     
     let minId = 1;
-    let maxId = GEN_1_POKEMON_LIMIT;
+    let maxId = MAX_POKEMON_ID;
     
     if (generationFilter && genRanges[generationFilter]) {
         [minId, maxId] = genRanges[generationFilter];
     }
     
     let count = 0;
+    const MAX_DISPLAY_PER_PAGE = 200; // Limit to 200 Pokemon per page for performance
+    
     for (const pokemon of gameState.availablePokemon) {
         // Extract ID from URL if available
         const pokemonId = pokemon.url ? parseInt(pokemon.url.split('/').filter(Boolean).pop()) : count + 1;
@@ -1396,7 +1398,7 @@ async function renderPokemonList(filter = '') {
         grid.appendChild(card);
         
         count++;
-        if (count >= GEN_1_POKEMON_LIMIT) break; // Limit display count per filter
+        if (count >= MAX_DISPLAY_PER_PAGE) break; // Limit display count per filter for performance
     }
 }
 
