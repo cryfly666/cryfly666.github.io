@@ -497,6 +497,114 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
             if (msg4) effects.push(msg4);
             if (msg5) effects.push(msg5);
         }
+    } else if (moveData.name === 'Iron Head' || moveData.name === 'iron-head' ||
+               moveData.name === 'Zen Headbutt' || moveData.name === 'zen-headbutt' ||
+               moveData.name === 'Headbutt' || moveData.name === 'headbutt') {
+        // 30% chance to flinch (20% for Headbutt)
+        const flinchChance = (moveData.name === 'Headbutt' || moveData.name === 'headbutt') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Steel Wing' || moveData.name === 'steel-wing') {
+        // 10% chance to raise user's Defense
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(attacker, 'defense', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Stone Edge' || moveData.name === 'stone-edge') {
+        // High crit ratio (already handled in damage calculation)
+    } else if (moveData.name === 'Meteor Mash' || moveData.name === 'meteor-mash') {
+        // 20% chance to raise Attack
+        if (Math.random() < 0.2) {
+            const msg = changeStatStage(attacker, 'attack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Power-Up Punch' || moveData.name === 'power-up-punch') {
+        // 100% chance to raise Attack
+        const msg = changeStatStage(attacker, 'attack', 1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Charge Beam' || moveData.name === 'charge-beam') {
+        // 70% chance to raise Sp.Atk
+        if (Math.random() < 0.7) {
+            const msg = changeStatStage(attacker, 'spAttack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Fiery Dance' || moveData.name === 'fiery-dance') {
+        // 50% chance to raise Sp.Atk
+        if (Math.random() < 0.5) {
+            const msg = changeStatStage(attacker, 'spAttack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Icy Wind' || moveData.name === 'icy-wind') {
+        // Already handled above with Bulldoze
+    } else if (moveData.name === 'Razor Shell' || moveData.name === 'razor-shell') {
+        // 50% chance to lower Defense
+        if (Math.random() < 0.5) {
+            const msg = changeStatStage(defender, 'defense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Bug Buzz' || moveData.name === 'bug-buzz') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Air Slash' || moveData.name === 'air-slash' ||
+               moveData.name === 'Astonish' || moveData.name === 'astonish') {
+        // 30% chance to flinch
+        if (Math.random() < 0.3) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Extrasensory' || moveData.name === 'extrasensory' ||
+               moveData.name === 'Stomp' || moveData.name === 'stomp') {
+        // 10-30% chance to flinch
+        const flinchChance = (moveData.name === 'Extrasensory' || moveData.name === 'extrasensory') ? 0.1 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Bite' || moveData.name === 'bite' ||
+               moveData.name === 'Dark Pulse' || moveData.name === 'dark-pulse') {
+        // 30% chance to flinch (20% for Bite)
+        const flinchChance = (moveData.name === 'Bite' || moveData.name === 'bite') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam' ||
+               moveData.name === 'Ice Punch' || moveData.name === 'ice-punch') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冻结了！`);
+        }
+    } else if (moveData.name === 'Blizzard' || moveData.name === 'blizzard') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冻结了！`);
+        }
+    } else if (moveData.name === 'Tri Attack' || moveData.name === 'tri-attack') {
+        // 20% chance to burn, freeze, or paralyze
+        if (Math.random() < 0.2) {
+            const statusRoll = Math.random();
+            if (statusRoll < 0.33 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+                effects.push(`${defender.name} 被灼伤了！`);
+            } else if (statusRoll < 0.67 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+                effects.push(`${defender.name} 被冻结了！`);
+            } else if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+                effects.push(`${defender.name} 被麻痹了！`);
+            }
+        }
+    } else if (moveData.name === 'Nuzzle' || moveData.name === 'nuzzle') {
+        // 100% chance to paralyze
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Fake Out' || moveData.name === 'fake-out') {
+        // 100% chance to flinch (only works on first turn, but we'll simplify)
+        applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+        effects.push(`${defender.name} 畏缩了！`);
     }
     
     // Stat-changing moves
@@ -610,6 +718,69 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
     } else if (moveData.name === 'Tickle' || moveData.name === 'tickle') {
         const msg1 = changeStatStage(defender, 'attack', -1);
         const msg2 = changeStatStage(defender, 'defense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Shift Gear' || moveData.name === 'shift-gear') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'speed', 2);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Autotomize' || moveData.name === 'autotomize') {
+        const msg = changeStatStage(attacker, 'speed', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Stockpile' || moveData.name === 'stockpile') {
+        const msg1 = changeStatStage(attacker, 'defense', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Cosmic Power' || moveData.name === 'cosmic-power') {
+        const msg1 = changeStatStage(attacker, 'defense', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Growth' || moveData.name === 'growth') {
+        // +1 Atk/SpA normally, +2 in sun
+        const boost = (gameState.weather === WEATHER_CONDITIONS.SUN) ? 2 : 1;
+        const msg1 = changeStatStage(attacker, 'attack', boost);
+        const msg2 = changeStatStage(attacker, 'spAttack', boost);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Acupressure' || moveData.name === 'acupressure') {
+        // Sharply raises a random stat
+        const stats = ['attack', 'defense', 'spAttack', 'spDefense', 'speed', 'accuracy', 'evasion'];
+        const randomStat = stats[Math.floor(Math.random() * stats.length)];
+        const msg = changeStatStage(attacker, randomStat, 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Double Team' || moveData.name === 'double-team' ||
+               moveData.name === 'Minimize' || moveData.name === 'minimize') {
+        const msg = changeStatStage(attacker, 'evasion', 1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Flash' || moveData.name === 'flash' ||
+               moveData.name === 'Sand Attack' || moveData.name === 'sand-attack' ||
+               moveData.name === 'Smokescreen' || moveData.name === 'smokescreen') {
+        const msg = changeStatStage(defender, 'accuracy', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Swagger' || moveData.name === 'swagger' ||
+               moveData.name === 'Flatter' || moveData.name === 'flatter') {
+        // Raises target's Attack/SpA and confuses it
+        const stat = (moveData.name === 'Flatter' || moveData.name === 'flatter') ? 'spAttack' : 'attack';
+        const msg = changeStatStage(defender, stat, 2);
+        if (msg) effects.push(msg);
+        if (applyVolatileStatus(defender, VOLATILE_STATUS.CONFUSION)) {
+            effects.push(`${defender.name} 混乱了！`);
+            defender.confusionTurns = 0;
+        }
+    } else if (moveData.name === 'Noble Roar' || moveData.name === 'noble-roar' ||
+               moveData.name === 'Venom Drench' || moveData.name === 'venom-drench') {
+        // Lowers Attack and Sp.Atk
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'spAttack', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Parting Shot' || moveData.name === 'parting-shot') {
+        // Lowers Attack and Sp.Atk, then switches out
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'spAttack', -1);
         if (msg1) effects.push(msg1);
         if (msg2) effects.push(msg2);
     }
