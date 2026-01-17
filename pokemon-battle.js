@@ -238,8 +238,67 @@ function getMovePriority(moveName) {
 }
 
 // Apply move special effects
-async function applyMoveEffects(attacker, defender, move, moveData) {
+async function applyMoveEffects(attacker, defender, move, moveData, damageDealt = 0) {
     const effects = [];
+    
+    // Healing moves
+    if (moveData.name === 'Rest' || moveData.name === 'rest') {
+        const healAmount = attacker.maxHP - attacker.currentHP;
+        attacker.currentHP = attacker.maxHP;
+        effects.push(`${attacker.name} 睡着了并恢复了体力！`);
+        applyStatusCondition(attacker, STATUS_CONDITIONS.SLEEP);
+        attacker.statusTurns = 0;
+        return effects;
+    } else if (moveData.name === 'Recover' || moveData.name === 'recover' || moveData.name === 'Roost' || moveData.name === 'roost') {
+        const healAmount = Math.floor(attacker.maxHP * 0.5);
+        const actualHeal = Math.min(healAmount, attacker.maxHP - attacker.currentHP);
+        attacker.currentHP = Math.min(attacker.maxHP, attacker.currentHP + healAmount);
+        if (actualHeal > 0) {
+            effects.push(`${attacker.name} 恢复了体力！`);
+        } else {
+            effects.push(`${attacker.name} 的体力已经满了！`);
+        }
+        return effects;
+    }
+    
+    // Draining moves (absorb HP)
+    if (moveData.name === 'Drain Punch' || moveData.name === 'drain-punch' || 
+        moveData.name === 'Giga Drain' || moveData.name === 'giga-drain' ||
+        moveData.name === 'Mega Drain' || moveData.name === 'mega-drain' ||
+        moveData.name === 'Absorb' || moveData.name === 'absorb') {
+        const drainAmount = Math.floor(damageDealt * 0.5);
+        if (drainAmount > 0) {
+            const actualHeal = Math.min(drainAmount, attacker.maxHP - attacker.currentHP);
+            attacker.currentHP = Math.min(attacker.maxHP, attacker.currentHP + drainAmount);
+            if (actualHeal > 0) {
+                effects.push(`${attacker.name} 吸取了${defender.name}的体力！`);
+            }
+        }
+    }
+    
+    // Leech Seed
+    if (moveData.name === 'Leech Seed' || moveData.name === 'leech-seed') {
+        if (!defender.data.types.some(t => t.type.name === 'grass') && 
+            !defender.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.LEECH_SEED);
+            effects.push(`${defender.name} 被种下了寄生种子！`);
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
+    
+    // Substitute
+    if (moveData.name === 'Substitute' || moveData.name === 'substitute') {
+        const cost = Math.floor(attacker.maxHP * 0.25);
+        if (attacker.currentHP > cost && attacker.substituteHP === 0) {
+            attacker.currentHP -= cost;
+            attacker.substituteHP = cost;
+            applyVolatileStatus(attacker, VOLATILE_STATUS.SUBSTITUTE);
+            effects.push(`${attacker.name} 制造了替身！`);
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
     
     // Status effect moves
     if (moveData.name === 'Thunder Wave' || moveData.name === 'thunder-wave') {
@@ -288,17 +347,28 @@ async function applyMoveEffects(attacker, defender, move, moveData) {
         const msg2 = changeStatStage(attacker, 'speed', 1);
         if (msg1) effects.push(msg1);
         if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Nasty Plot' || moveData.name === 'nasty-plot') {
+        const msg = changeStatStage(attacker, 'spAttack', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Calm Mind' || moveData.name === 'calm-mind') {
+        const msg1 = changeStatStage(attacker, 'spAttack', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
     } else if (moveData.name === 'Amnesia' || moveData.name === 'amnesia') {
         const msg = changeStatStage(attacker, 'spDefense', 2);
         if (msg) effects.push(msg);
     } else if (moveData.name === 'Growl' || moveData.name === 'growl') {
         const msg = changeStatStage(defender, 'attack', -1);
         if (msg) effects.push(msg);
-    } else if (moveData.name === 'Tail Whip' || moveData.name === 'tail-whip') {
+    } else if (moveData.name === 'Tail Whip' || moveData.name === 'tail-whip' || moveData.name === 'Leer' || moveData.name === 'leer') {
         const msg = changeStatStage(defender, 'defense', -1);
         if (msg) effects.push(msg);
     } else if (moveData.name === 'String Shot' || moveData.name === 'string-shot') {
         const msg = changeStatStage(defender, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Scary Face' || moveData.name === 'scary-face') {
+        const msg = changeStatStage(defender, 'speed', -2);
         if (msg) effects.push(msg);
     }
     
@@ -1195,6 +1265,55 @@ async function applyEndOfTurnEffects() {
         }
     }
     
+    // Leech Seed damage
+    if (!currentPlayer.fainted && currentPlayer.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+        const damage = Math.floor(currentPlayer.maxHP / 8);
+        currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+        updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+        document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+        addLog(`${currentPlayer.name} 被种子吸取了体力！`);
+        
+        // Heal opponent
+        if (!currentOpponent.fainted) {
+            const heal = Math.min(damage, currentOpponent.maxHP - currentOpponent.currentHP);
+            currentOpponent.currentHP = Math.min(currentOpponent.maxHP, currentOpponent.currentHP + heal);
+            updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+            document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+        }
+        
+        await sleep(500);
+        
+        if (currentPlayer.currentHP === 0) {
+            currentPlayer.fainted = true;
+            addLog(`${currentPlayer.name} 失去了战斗能力！`);
+            await sleep(500);
+        }
+    }
+    
+    if (!currentOpponent.fainted && currentOpponent.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+        const damage = Math.floor(currentOpponent.maxHP / 8);
+        currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+        updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+        document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+        addLog(`${currentOpponent.name} 被种子吸取了体力！`);
+        
+        // Heal player
+        if (!currentPlayer.fainted) {
+            const heal = Math.min(damage, currentPlayer.maxHP - currentPlayer.currentHP);
+            currentPlayer.currentHP = Math.min(currentPlayer.maxHP, currentPlayer.currentHP + heal);
+            updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+            document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+        }
+        
+        await sleep(500);
+        
+        if (currentOpponent.currentHP === 0) {
+            currentOpponent.fainted = true;
+            addLog(`${currentOpponent.name} 失去了战斗能力！`);
+            await sleep(500);
+        }
+    }
+    
     // Apply weather damage
     if (gameState.weather !== WEATHER_CONDITIONS.NONE) {
         gameState.weatherTurns--;
@@ -1366,39 +1485,64 @@ async function executeAttack(attacker, move) {
     const result = await calculateDamage(attackerPokemon, defenderPokemon, move);
     
     // Apply damage
+    let actualDamage = 0;
     if (result.damage > 0) {
-        defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
-        
-        // Update display
-        updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
-        document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
-            `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
-        
-        // Damage animation
-        const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
-        defenderSprite.classList.add('taking-damage');
-        
-        // Show effectiveness
-        if (result.critical) {
-            addLog('会心一击！');
+        // Check if defender has substitute
+        if (defenderPokemon.substituteHP > 0) {
+            const substDamage = Math.min(result.damage, defenderPokemon.substituteHP);
+            defenderPokemon.substituteHP -= substDamage;
+            actualDamage = 0; // No HP damage when substitute takes it
+            
+            if (defenderPokemon.substituteHP <= 0) {
+                defenderPokemon.substituteHP = 0;
+                removeVolatileStatus(defenderPokemon, VOLATILE_STATUS.SUBSTITUTE);
+                addLog(`${defenderPokemon.name} 的替身消失了！`);
+            } else {
+                addLog(`替身代替${defenderPokemon.name}承受了伤害！`);
+            }
+        } else {
+            // Normal damage
+            defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
+            actualDamage = result.damage;
+            
+            // Update display
+            updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
+            document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
+                `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
+            
+            // Damage animation
+            const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
+            defenderSprite.classList.add('taking-damage');
+            
+            // Show effectiveness
+            if (result.critical) {
+                addLog('会心一击！');
+            }
+            if (result.effectiveness > 1) {
+                addLog('效果拔群！');
+            } else if (result.effectiveness < 1 && result.effectiveness > 0) {
+                addLog('效果不理想...');
+            } else if (result.effectiveness === 0) {
+                addLog('对方没有受到伤害...');
+            }
+            
+            await sleep(500);
+            defenderSprite.classList.remove('taking-damage');
         }
-        if (result.effectiveness > 1) {
-            addLog('效果拔群！');
-        } else if (result.effectiveness < 1 && result.effectiveness > 0) {
-            addLog('效果不理想...');
-        } else if (result.effectiveness === 0) {
-            addLog('对方没有受到伤害...');
-        }
-        
-        await sleep(500);
-        defenderSprite.classList.remove('taking-damage');
         
         // Apply secondary effects (for attacking moves with additional effects)
         if (moveData) {
-            const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData);
+            const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData, actualDamage);
             for (const effect of effects) {
                 addLog(effect);
                 await sleep(300);
+            }
+            
+            // Update HP display if healing/draining occurred
+            if (effects.some(e => e.includes('恢复') || e.includes('吸取'))) {
+                updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+                document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                    `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
             }
         }
         
@@ -1411,6 +1555,21 @@ async function executeAttack(attacker, move) {
                 `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
             addLog(`${attackerPokemon.name} 受到了生命宝珠的反伤！`);
             await sleep(300);
+        }
+        
+        // Recoil moves
+        if (moveData && (moveData.name === 'Flare Blitz' || moveData.name === 'flare-blitz' ||
+                         moveData.name === 'Brave Bird' || moveData.name === 'brave-bird' ||
+                         moveData.name === 'Double-Edge' || moveData.name === 'double-edge')) {
+            const recoil = Math.floor(actualDamage * 0.33);
+            if (recoil > 0) {
+                attackerPokemon.currentHP = Math.max(0, attackerPokemon.currentHP - recoil);
+                updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+                document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                    `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
+                addLog(`${attackerPokemon.name} 受到了反作用力的伤害！`);
+                await sleep(300);
+            }
         }
     }
     
