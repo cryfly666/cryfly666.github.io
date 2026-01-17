@@ -127,7 +127,8 @@ let gameState = {
     battleLog: [],
     availablePokemon: [],
     teamBeingBuilt: [], // Temporary array while building team
-    currentConfig: null // Pokemon being configured
+    currentConfig: null, // Pokemon being configured
+    scrollPosition: 0 // Save scroll position when navigating away
 };
 
 // ==================== API Functions ====================
@@ -192,10 +193,22 @@ async function loadPokemonList() {
 // ==================== Screen Management ====================
 
 function showScreen(screenId) {
+    // Save scroll position when leaving selection screen
+    if (document.getElementById('selectionScreen').classList.contains('active')) {
+        gameState.scrollPosition = window.scrollY || window.pageYOffset;
+    }
+    
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
     });
     document.getElementById(screenId).classList.add('active');
+    
+    // Restore scroll position when returning to selection screen
+    if (screenId === 'selectionScreen' && gameState.scrollPosition > 0) {
+        setTimeout(() => {
+            window.scrollTo(0, gameState.scrollPosition);
+        }, 0);
+    }
 }
 
 // ==================== Battle Calculations ====================
@@ -884,11 +897,37 @@ async function renderPokemonList(filter = '') {
     
     const searchTerm = document.getElementById('pokemonSearch')?.value.toLowerCase() || '';
     const typeFilter = document.getElementById('typeFilter')?.value || '';
+    const generationFilter = document.getElementById('generationFilter')?.value || '';
+    
+    // Generation ranges
+    const genRanges = {
+        '1': [1, 151],
+        '2': [152, 251],
+        '3': [252, 386],
+        '4': [387, 493],
+        '5': [494, 649],
+        '6': [650, 721],
+        '7': [722, 809],
+        '8': [810, 905],
+        '9': [906, 1025]
+    };
+    
+    let minId = 1;
+    let maxId = GEN_1_POKEMON_LIMIT;
+    
+    if (generationFilter && genRanges[generationFilter]) {
+        [minId, maxId] = genRanges[generationFilter];
+    }
     
     let count = 0;
     for (const pokemon of gameState.availablePokemon) {
         // Extract ID from URL if available
         const pokemonId = pokemon.url ? parseInt(pokemon.url.split('/').filter(Boolean).pop()) : count + 1;
+        
+        // Filter by generation
+        if (pokemonId < minId || pokemonId > maxId) {
+            continue;
+        }
         
         if (searchTerm && !pokemon.name.includes(searchTerm) && !getCNName(pokemonId, 'pokemon').includes(searchTerm)) {
             continue;
@@ -919,7 +958,7 @@ async function renderPokemonList(filter = '') {
         grid.appendChild(card);
         
         count++;
-        if (count >= GEN_1_POKEMON_LIMIT) break; // Limit to Gen 1
+        if (count >= 151) break; // Limit display count
     }
 }
 
@@ -974,6 +1013,9 @@ function createPokemonCard(pokemon, index, isOpponent) {
 }
 
 function showConfigScreen(pokemon) {
+    // Save scroll position before navigating away
+    gameState.scrollPosition = window.scrollY || window.pageYOffset;
+    
     gameState.currentConfig = {
         pokemon: pokemon,
         selectedMoves: [],
@@ -1175,6 +1217,13 @@ function saveConfiguration() {
     
     updateTeamCounter();
     showScreen('selectionScreen');
+    
+    // Restore scroll position
+    if (gameState.scrollPosition > 0) {
+        setTimeout(() => {
+            window.scrollTo(0, gameState.scrollPosition);
+        }, 0);
+    }
 }
 
 function startBattleWithTeam() {
@@ -1238,6 +1287,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     
     document.getElementById('typeFilter')?.addEventListener('change', () => {
+        renderPokemonList();
+    });
+    
+    document.getElementById('generationFilter')?.addEventListener('change', () => {
         renderPokemonList();
     });
 });
