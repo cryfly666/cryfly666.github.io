@@ -1122,6 +1122,34 @@ function getModifiedStat(pokemon, statName) {
         if (pokemon.ability === 'Sand Rush' && gameState.weather === WEATHER_CONDITIONS.SANDSTORM) {
             modifiedStat = Math.floor(modifiedStat * 2);
         }
+        // Slush Rush doubles speed in hail
+        if (pokemon.ability === 'Slush Rush' && gameState.weather === WEATHER_CONDITIONS.HAIL) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Unburden doubles speed when item is consumed/lost
+        if (pokemon.ability === 'Unburden' && !pokemon.item) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+    }
+    
+    // Huge Power / Pure Power doubles attack
+    if (statName === 'attack' && (pokemon.ability === 'Huge Power' || pokemon.ability === 'Pure Power')) {
+        modifiedStat = Math.floor(modifiedStat * 2);
+    }
+    
+    // Marvel Scale increases defense when statused
+    if (statName === 'defense' && pokemon.ability === 'Marvel Scale' && pokemon.status !== STATUS_CONDITIONS.NONE) {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    // Guts increases attack when statused (ignoring burn)
+    if (statName === 'attack' && pokemon.ability === 'Guts' && pokemon.status !== STATUS_CONDITIONS.NONE) {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    // Fur Coat doubles defense
+    if (statName === 'defense' && pokemon.ability === 'Fur Coat') {
+        modifiedStat = Math.floor(modifiedStat * 2);
     }
     
     // Apply item effects - Choice Scarf
@@ -1211,9 +1239,95 @@ async function calculateDamage(attacker, defender, move) {
         getModifiedStat(defender, 'defense') : 
         getModifiedStat(defender, 'spDefense');
     
-    // Ability effects on stats
+    // Ability effects on power
+    // Thick Fat halves fire and ice damage
     if (defender.ability === 'Thick Fat' && (moveData.type.name === 'fire' || moveData.type.name === 'ice')) {
         power = Math.floor(power * 0.5);
+    }
+    
+    // Heatproof halves fire damage
+    if (defender.ability === 'Heatproof' && moveData.type.name === 'fire') {
+        power = Math.floor(power * 0.5);
+    }
+    
+    // Dry Skin takes more fire damage
+    if (defender.ability === 'Dry Skin' && moveData.type.name === 'fire') {
+        power = Math.floor(power * 1.25);
+    }
+    
+    // Fluffy halves contact move damage (doubles fire damage)
+    if (defender.ability === 'Fluffy') {
+        if (moveData.meta && moveData.meta.ailment && moveData.meta.ailment.name === 'contact') {
+            power = Math.floor(power * 0.5);
+        }
+        if (moveData.type.name === 'fire') {
+            power = Math.floor(power * 2);
+        }
+    }
+    
+    // Iron Fist boosts punch moves by 20%
+    if (attacker.ability === 'Iron Fist' && (
+        moveData.name.includes('punch') || moveData.name.includes('Punch') ||
+        moveData.name === 'hammer-arm' || moveData.name === 'meteor-mash' ||
+        moveData.name === 'sky-uppercut' || moveData.name === 'drain-punch'
+    )) {
+        power = Math.floor(power * 1.2);
+    }
+    
+    // Reckless boosts recoil moves by 20%
+    if (attacker.ability === 'Reckless' && (
+        moveData.name === 'brave-bird' || moveData.name === 'flare-blitz' ||
+        moveData.name === 'double-edge' || moveData.name === 'head-smash' ||
+        moveData.name === 'take-down' || moveData.name === 'submission' ||
+        moveData.name === 'wild-charge'
+    )) {
+        power = Math.floor(power * 1.2);
+    }
+    
+    // Sheer Force boosts moves with secondary effects by 30% (removes secondary)
+    if (attacker.ability === 'Sheer Force' && moveData.meta && moveData.meta.ailment_chance > 0) {
+        power = Math.floor(power * 1.3);
+    }
+    
+    // Technician boosts moves with 60 power or less by 50%
+    if (attacker.ability === 'Technician' && power <= 60) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Adaptability increases STAB from 1.5x to 2x (will be handled below)
+    
+    // Strong Jaw boosts bite moves by 50%
+    if (attacker.ability === 'Strong Jaw' && (
+        moveData.name.includes('bite') || moveData.name.includes('Bite') ||
+        moveData.name === 'crunch' || moveData.name === 'fire-fang' ||
+        moveData.name === 'ice-fang' || moveData.name === 'thunder-fang' ||
+        moveData.name === 'poison-fang' || moveData.name === 'psychic-fangs'
+    )) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Mega Launcher boosts pulse/aura moves by 50%
+    if (attacker.ability === 'Mega Launcher' && (
+        moveData.name.includes('pulse') || moveData.name.includes('Pulse') ||
+        moveData.name === 'aura-sphere' || moveData.name === 'dragon-pulse' ||
+        moveData.name === 'water-pulse' || moveData.name === 'dark-pulse'
+    )) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Tough Claws boosts contact moves by 30%
+    if (attacker.ability === 'Tough Claws' && moveData.meta && moveData.meta.ailment && 
+        moveData.meta.ailment.name === 'contact') {
+        power = Math.floor(power * 1.3);
+    }
+    
+    // Analytic boosts power by 30% when moving last (simplified - always apply)
+    // (In real game, would check turn order)
+    
+    // Sand Force boosts Rock/Ground/Steel in sandstorm
+    if (attacker.ability === 'Sand Force' && gameState.weather === WEATHER_CONDITIONS.SANDSTORM &&
+        (moveData.type.name === 'rock' || moveData.type.name === 'ground' || moveData.type.name === 'steel')) {
+        power = Math.floor(power * 1.3);
     }
     
     // Item effects - Assault Vest
@@ -1229,20 +1343,78 @@ async function calculateDamage(attacker, defender, move) {
     }
     
     // Check STAB (Same Type Attack Bonus)
-    const stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
+    // Adaptability increases STAB from 1.5x to 2x
+    let stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
+    if (attacker.ability === 'Adaptability' && stab === 1.5) {
+        stab = 2.0;
+    }
     
     // Type effectiveness
     let effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
     
-    // Ability: Levitate - immune to ground moves
+    // Ability immunities and absorptions
+    // Levitate - immune to ground moves
     if (defender.ability === 'Levitate' && moveData.type.name === 'ground') {
         effectiveness = 0;
     }
     
-    // Ability: Water Absorb - immune to water moves and heal
+    // Water Absorb - immune to water moves and heal
     if (defender.ability === 'Water Absorb' && moveData.type.name === 'water') {
         effectiveness = 0;
         // Heal will be applied separately
+    }
+    
+    // Volt Absorb - immune to electric moves and heal
+    if (defender.ability === 'Volt Absorb' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Flash Fire - immune to fire moves and boost fire moves
+    if (defender.ability === 'Flash Fire' && moveData.type.name === 'fire') {
+        effectiveness = 0;
+        defender.flashFireActive = true; // Mark Flash Fire as activated
+    }
+    
+    // Storm Drain - immune to water moves, boosts SpA
+    if (defender.ability === 'Storm Drain' && moveData.type.name === 'water') {
+        effectiveness = 0;
+    }
+    
+    // Lightning Rod - immune to electric moves, boosts SpA
+    if (defender.ability === 'Lightning Rod' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Sap Sipper - immune to grass moves, boosts Attack
+    if (defender.ability === 'Sap Sipper' && moveData.type.name === 'grass') {
+        effectiveness = 0;
+    }
+    
+    // Motor Drive - immune to electric moves, boosts Speed
+    if (defender.ability === 'Motor Drive' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Dry Skin - heals from water moves
+    if (defender.ability === 'Dry Skin' && moveData.type.name === 'water') {
+        effectiveness = 0;
+    }
+    
+    // Wonder Guard - only super effective moves hit
+    if (defender.ability === 'Wonder Guard' && effectiveness <= 1) {
+        effectiveness = 0;
+    }
+    
+    // Filter / Solid Rock - reduce super effective damage
+    if ((defender.ability === 'Filter' || defender.ability === 'Solid Rock' || 
+         defender.ability === 'Prism Armor') && effectiveness > 1) {
+        effectiveness = effectiveness * 0.75;
+    }
+    
+    // Multiscale / Shadow Shield - reduce damage at full HP
+    if ((defender.ability === 'Multiscale' || defender.ability === 'Shadow Shield') && 
+        defender.hp === defender.stats.hp) {
+        effectiveness = effectiveness * 0.5;
     }
     
     // Weather effects
@@ -1295,6 +1467,11 @@ async function calculateDamage(attacker, defender, move) {
     // Damage formula (Gen VI formula)
     const baseDamage = ((2 * level / 5 + 2) * power * attackStat / defenseStat / 50 + 2);
     let damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * terrainMultiplier * random * critical);
+    
+    // Flash Fire boosts fire moves by 50% when activated
+    if (attacker.ability === 'Flash Fire' && attacker.flashFireActive && moveData.type.name === 'fire') {
+        damage = Math.floor(damage * 1.5);
+    }
     
     // Life Orb boosts damage by 30%
     if (attacker.item === 'Life Orb' && damage > 0) {
