@@ -382,6 +382,121 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
         if (Math.random() < paraChance && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
             effects.push(`${defender.name} 被麻痹了！`);
         }
+    } else if (moveData.name === 'Body Slam' || moveData.name === 'body-slam' ||
+               moveData.name === 'Bounce' || moveData.name === 'bounce' ||
+               moveData.name === 'Lick' || moveData.name === 'lick') {
+        // 30% chance to paralyze for Body Slam, 10% for others
+        const paraChance = (moveData.name === 'Body Slam' || moveData.name === 'body-slam') ? 0.3 : 0.1;
+        if (Math.random() < paraChance && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Sludge Bomb' || moveData.name === 'sludge-bomb' ||
+               moveData.name === 'Poison Jab' || moveData.name === 'poison-jab' ||
+               moveData.name === 'Gunk Shot' || moveData.name === 'gunk-shot') {
+        // 30% chance to poison
+        if (Math.random() < 0.3 && applyStatusCondition(defender, STATUS_CONDITIONS.POISON)) {
+            effects.push(`${defender.name} 中毒了！`);
+        }
+    } else if (moveData.name === 'Rock Slide' || moveData.name === 'rock-slide' ||
+               moveData.name === 'Waterfall' || moveData.name === 'waterfall' ||
+               moveData.name === 'Icicle Crash' || moveData.name === 'icicle-crash') {
+        // 30% chance to flinch (20% for Waterfall)
+        const flinchChance = (moveData.name === 'Waterfall' || moveData.name === 'waterfall') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Crunch' || moveData.name === 'crunch' ||
+               moveData.name === 'Shadow Ball' || moveData.name === 'shadow-ball') {
+        // 20% chance to lower Sp.Def
+        if (Math.random() < 0.2) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Psychic' || moveData.name === 'psychic') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Earth Power' || moveData.name === 'earth-power') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Energy Ball' || moveData.name === 'energy-ball' ||
+               moveData.name === 'Focus Blast' || moveData.name === 'focus-blast') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Flash Cannon' || moveData.name === 'flash-cannon') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Moonblast' || moveData.name === 'moonblast') {
+        // 30% chance to lower Sp.Atk
+        if (Math.random() < 0.3) {
+            const msg = changeStatStage(defender, 'spAttack', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Play Rough' || moveData.name === 'play-rough') {
+        // 10% chance to lower Attack
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'attack', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Bulldoze' || moveData.name === 'bulldoze' ||
+               moveData.name === 'Icy Wind' || moveData.name === 'icy-wind' ||
+               moveData.name === 'Rock Tomb' || moveData.name === 'rock-tomb') {
+        // 100% chance to lower Speed
+        const msg = changeStatStage(defender, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Hammer Arm' || moveData.name === 'hammer-arm') {
+        // Lowers user's Speed
+        const msg = changeStatStage(attacker, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Superpower' || moveData.name === 'superpower' ||
+               moveData.name === 'Close Combat' || moveData.name === 'close-combat') {
+        // Lowers user's Def and Sp.Def
+        const msg1 = changeStatStage(attacker, 'defense', -1);
+        const msg2 = changeStatStage(attacker, 'spDefense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Draco Meteor' || moveData.name === 'draco-meteor' ||
+               moveData.name === 'Leaf Storm' || moveData.name === 'leaf-storm' ||
+               moveData.name === 'Overheat' || moveData.name === 'overheat') {
+        // Harshly lowers user's Sp.Atk
+        const msg = changeStatStage(attacker, 'spAttack', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'V-create' || moveData.name === 'v-create') {
+        // Lowers user's Def, Sp.Def, and Speed
+        const msg1 = changeStatStage(attacker, 'defense', -1);
+        const msg2 = changeStatStage(attacker, 'spDefense', -1);
+        const msg3 = changeStatStage(attacker, 'speed', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+    } else if (moveData.name === 'Ancient Power' || moveData.name === 'ancient-power' ||
+               moveData.name === 'Silver Wind' || moveData.name === 'silver-wind' ||
+               moveData.name === 'Ominous Wind' || moveData.name === 'ominous-wind') {
+        // 10% chance to raise all stats
+        if (Math.random() < 0.1) {
+            const msg1 = changeStatStage(attacker, 'attack', 1);
+            const msg2 = changeStatStage(attacker, 'defense', 1);
+            const msg3 = changeStatStage(attacker, 'spAttack', 1);
+            const msg4 = changeStatStage(attacker, 'spDefense', 1);
+            const msg5 = changeStatStage(attacker, 'speed', 1);
+            if (msg1) effects.push(msg1);
+            if (msg2) effects.push(msg2);
+            if (msg3) effects.push(msg3);
+            if (msg4) effects.push(msg4);
+            if (msg5) effects.push(msg5);
+        }
     }
     
     // Stat-changing moves
