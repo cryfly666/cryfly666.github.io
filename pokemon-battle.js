@@ -28,7 +28,7 @@ function getCNName(idOrName, type = 'pokemon') {
 
 // Constants
 const MAX_TEAM_SIZE = 6;
-const GEN_1_POKEMON_LIMIT = 151;
+const MAX_POKEMON_ID = 1025; // Total number of Pokemon (Gen 1-9)
 const MAX_EV_PER_STAT = 252;
 const MAX_TOTAL_EVS = 510;
 
@@ -118,6 +118,43 @@ const OPPONENT_TEAM = [
     }
 ];
 
+// Status condition constants
+const STATUS_CONDITIONS = {
+    NONE: 'none',
+    BURN: 'burn',
+    POISON: 'poison',
+    BADLY_POISON: 'badly-poison',
+    PARALYSIS: 'paralysis',
+    SLEEP: 'sleep',
+    FREEZE: 'freeze'
+};
+
+const VOLATILE_STATUS = {
+    CONFUSION: 'confusion',
+    FLINCH: 'flinch',
+    LEECH_SEED: 'leech-seed',
+    SUBSTITUTE: 'substitute',
+    PROTECT: 'protect'
+};
+
+// Weather constants
+const WEATHER_CONDITIONS = {
+    NONE: 'none',
+    SUN: 'sun',
+    RAIN: 'rain',
+    SANDSTORM: 'sandstorm',
+    HAIL: 'hail'
+};
+
+// Terrain constants
+const TERRAIN_CONDITIONS = {
+    NONE: 'none',
+    ELECTRIC: 'electric',
+    GRASSY: 'grassy',
+    MISTY: 'misty',
+    PSYCHIC: 'psychic'
+};
+
 // Global state
 let gameState = {
     playerTeam: [], // Array of 6 Pokemon for the player
@@ -128,7 +165,12 @@ let gameState = {
     availablePokemon: [],
     teamBeingBuilt: [], // Temporary array while building team
     currentConfig: null, // Pokemon being configured
-    scrollPosition: 0 // Save scroll position when navigating away
+    scrollPosition: 0, // Save scroll position when navigating away
+    weather: WEATHER_CONDITIONS.NONE,
+    weatherTurns: 0,
+    terrain: TERRAIN_CONDITIONS.NONE,
+    terrainTurns: 0,
+    turnCount: 0
 };
 
 // ==================== API Functions ====================
@@ -171,6 +213,655 @@ async function fetchMoveData(moveName) {
     }
 }
 
+// Get move priority (for turn order)
+function getMovePriority(moveName) {
+    // Priority moves go first regardless of speed
+    const priorityMoves = {
+        'quick-attack': 1,
+        'aqua-jet': 1,
+        'mach-punch': 1,
+        'bullet-punch': 2,
+        'accelerock': 2,
+        'ice-shard': 1,
+        'shadow-sneak': 1,
+        'sucker-punch': 1,
+        'extremespeed': 2,
+        'fake-out': 3,
+        'first-impression': 2,
+        'water-shuriken': 1,
+        'protect': 4,
+        'detect': 4,
+        'endure': 4
+    };
+    
+    return priorityMoves[moveName] || 0;
+}
+
+// Apply move special effects
+async function applyMoveEffects(attacker, defender, move, moveData, damageDealt = 0) {
+    const effects = [];
+    
+    // OHKO moves
+    if (moveData.name === 'Fissure' || moveData.name === 'fissure' ||
+        moveData.name === 'Guillotine' || moveData.name === 'guillotine' ||
+        moveData.name === 'Horn Drill' || moveData.name === 'horn-drill' ||
+        moveData.name === 'Sheer Cold' || moveData.name === 'sheer-cold') {
+        // OHKO moves have 30% base accuracy, fails if target is higher level
+        if (defender.level > attacker.level) {
+            effects.push('但是失败了！');
+            return effects;
+        }
+        const accuracy = 0.3 + (attacker.level - defender.level) * 0.01;
+        if (Math.random() < accuracy) {
+            defender.currentHP = 0;
+            effects.push('一击必杀！');
+        } else {
+            effects.push('但是没有命中！');
+        }
+        return effects;
+    }
+    
+    // Healing moves
+    if (moveData.name === 'Rest' || moveData.name === 'rest') {
+        const healAmount = attacker.maxHP - attacker.currentHP;
+        attacker.currentHP = attacker.maxHP;
+        effects.push(`${attacker.name} 睡着了并恢复了体力！`);
+        applyStatusCondition(attacker, STATUS_CONDITIONS.SLEEP);
+        attacker.statusTurns = 0;
+        return effects;
+    } else if (moveData.name === 'Recover' || moveData.name === 'recover' || moveData.name === 'Roost' || moveData.name === 'roost') {
+        const healAmount = Math.floor(attacker.maxHP * 0.5);
+        const actualHeal = Math.min(healAmount, attacker.maxHP - attacker.currentHP);
+        attacker.currentHP = Math.min(attacker.maxHP, attacker.currentHP + healAmount);
+        if (actualHeal > 0) {
+            effects.push(`${attacker.name} 恢复了体力！`);
+        } else {
+            effects.push(`${attacker.name} 的体力已经满了！`);
+        }
+        return effects;
+    }
+    
+    // Draining moves (absorb HP)
+    if (moveData.name === 'Drain Punch' || moveData.name === 'drain-punch' || 
+        moveData.name === 'Giga Drain' || moveData.name === 'giga-drain' ||
+        moveData.name === 'Mega Drain' || moveData.name === 'mega-drain' ||
+        moveData.name === 'Absorb' || moveData.name === 'absorb') {
+        const drainAmount = Math.floor(damageDealt * 0.5);
+        if (drainAmount > 0) {
+            const actualHeal = Math.min(drainAmount, attacker.maxHP - attacker.currentHP);
+            attacker.currentHP = Math.min(attacker.maxHP, attacker.currentHP + drainAmount);
+            if (actualHeal > 0) {
+                effects.push(`${attacker.name} 吸取了${defender.name}的体力！`);
+            }
+        }
+    }
+    
+    // Leech Seed
+    if (moveData.name === 'Leech Seed' || moveData.name === 'leech-seed') {
+        if (!defender.data.types.some(t => t.type.name === 'grass') && 
+            !defender.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.LEECH_SEED);
+            effects.push(`${defender.name} 被种下了寄生种子！`);
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
+    
+    // Substitute
+    if (moveData.name === 'Substitute' || moveData.name === 'substitute') {
+        const cost = Math.floor(attacker.maxHP * 0.25);
+        if (attacker.currentHP > cost && attacker.substituteHP === 0) {
+            attacker.currentHP -= cost;
+            attacker.substituteHP = cost;
+            applyVolatileStatus(attacker, VOLATILE_STATUS.SUBSTITUTE);
+            effects.push(`${attacker.name} 制造了替身！`);
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
+    
+    // Status effect moves
+    if (moveData.name === 'Thunder Wave' || moveData.name === 'thunder-wave' ||
+        moveData.name === 'Stun Spore' || moveData.name === 'stun-spore' ||
+        moveData.name === 'Glare' || moveData.name === 'glare') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Will-O-Wisp' || moveData.name === 'will-o-wisp') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Toxic' || moveData.name === 'toxic') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.BADLY_POISON)) {
+            effects.push(`${defender.name} 中了剧毒！`);
+        }
+    } else if (moveData.name === 'Poison Powder' || moveData.name === 'poison-powder' ||
+               moveData.name === 'Poisonpowder' || moveData.name === 'poisonpowder' ||
+               moveData.name === 'Poison Gas' || moveData.name === 'poison-gas') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.POISON)) {
+            effects.push(`${defender.name} 中毒了！`);
+        }
+    } else if (moveData.name === 'Sleep Powder' || moveData.name === 'sleep-powder' || 
+               moveData.name === 'Hypnosis' || moveData.name === 'hypnosis' ||
+               moveData.name === 'Spore' || moveData.name === 'spore' ||
+               moveData.name === 'Lovely Kiss' || moveData.name === 'lovely-kiss') {
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.SLEEP)) {
+            effects.push(`${defender.name} 睡着了！`);
+        }
+    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam' ||
+               moveData.name === 'Ice Punch' || moveData.name === 'ice-punch') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冰冻了！`);
+        }
+    } else if (moveData.name === 'Blizzard' || moveData.name === 'blizzard') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冰冻了！`);
+        }
+    } else if (moveData.name === 'Flamethrower' || moveData.name === 'flamethrower' || 
+               moveData.name === 'Fire Blast' || moveData.name === 'fire-blast' ||
+               moveData.name === 'Fire Punch' || moveData.name === 'fire-punch' ||
+               moveData.name === 'Lava Plume' || moveData.name === 'lava-plume') {
+        // 10-30% chance to burn depending on move
+        const burnChance = (moveData.name === 'Lava Plume' || moveData.name === 'lava-plume') ? 0.3 : 0.1;
+        if (Math.random() < burnChance && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Scald' || moveData.name === 'scald') {
+        // 30% chance to burn
+        if (Math.random() < 0.3 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Thunderbolt' || moveData.name === 'thunderbolt' || 
+               moveData.name === 'Thunder' || moveData.name === 'thunder' ||
+               moveData.name === 'Thunder Punch' || moveData.name === 'thunder-punch' ||
+               moveData.name === 'Discharge' || moveData.name === 'discharge') {
+        // 10-30% chance to paralyze
+        const paraChance = (moveData.name === 'Discharge' || moveData.name === 'discharge') ? 0.3 : 0.1;
+        if (Math.random() < paraChance && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Body Slam' || moveData.name === 'body-slam' ||
+               moveData.name === 'Bounce' || moveData.name === 'bounce' ||
+               moveData.name === 'Lick' || moveData.name === 'lick') {
+        // 30% chance to paralyze for Body Slam, 10% for others
+        const paraChance = (moveData.name === 'Body Slam' || moveData.name === 'body-slam') ? 0.3 : 0.1;
+        if (Math.random() < paraChance && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Sludge Bomb' || moveData.name === 'sludge-bomb' ||
+               moveData.name === 'Poison Jab' || moveData.name === 'poison-jab' ||
+               moveData.name === 'Gunk Shot' || moveData.name === 'gunk-shot') {
+        // 30% chance to poison
+        if (Math.random() < 0.3 && applyStatusCondition(defender, STATUS_CONDITIONS.POISON)) {
+            effects.push(`${defender.name} 中毒了！`);
+        }
+    } else if (moveData.name === 'Rock Slide' || moveData.name === 'rock-slide' ||
+               moveData.name === 'Waterfall' || moveData.name === 'waterfall' ||
+               moveData.name === 'Icicle Crash' || moveData.name === 'icicle-crash') {
+        // 30% chance to flinch (20% for Waterfall)
+        const flinchChance = (moveData.name === 'Waterfall' || moveData.name === 'waterfall') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Crunch' || moveData.name === 'crunch' ||
+               moveData.name === 'Shadow Ball' || moveData.name === 'shadow-ball') {
+        // 20% chance to lower Sp.Def
+        if (Math.random() < 0.2) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Psychic' || moveData.name === 'psychic') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Earth Power' || moveData.name === 'earth-power') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Energy Ball' || moveData.name === 'energy-ball' ||
+               moveData.name === 'Focus Blast' || moveData.name === 'focus-blast') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Flash Cannon' || moveData.name === 'flash-cannon') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Moonblast' || moveData.name === 'moonblast') {
+        // 30% chance to lower Sp.Atk
+        if (Math.random() < 0.3) {
+            const msg = changeStatStage(defender, 'spAttack', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Play Rough' || moveData.name === 'play-rough') {
+        // 10% chance to lower Attack
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'attack', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Bulldoze' || moveData.name === 'bulldoze' ||
+               moveData.name === 'Icy Wind' || moveData.name === 'icy-wind' ||
+               moveData.name === 'Rock Tomb' || moveData.name === 'rock-tomb') {
+        // 100% chance to lower Speed
+        const msg = changeStatStage(defender, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Hammer Arm' || moveData.name === 'hammer-arm') {
+        // Lowers user's Speed
+        const msg = changeStatStage(attacker, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Superpower' || moveData.name === 'superpower' ||
+               moveData.name === 'Close Combat' || moveData.name === 'close-combat') {
+        // Lowers user's Def and Sp.Def
+        const msg1 = changeStatStage(attacker, 'defense', -1);
+        const msg2 = changeStatStage(attacker, 'spDefense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Draco Meteor' || moveData.name === 'draco-meteor' ||
+               moveData.name === 'Leaf Storm' || moveData.name === 'leaf-storm' ||
+               moveData.name === 'Overheat' || moveData.name === 'overheat') {
+        // Harshly lowers user's Sp.Atk
+        const msg = changeStatStage(attacker, 'spAttack', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'V-create' || moveData.name === 'v-create') {
+        // Lowers user's Def, Sp.Def, and Speed
+        const msg1 = changeStatStage(attacker, 'defense', -1);
+        const msg2 = changeStatStage(attacker, 'spDefense', -1);
+        const msg3 = changeStatStage(attacker, 'speed', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+    } else if (moveData.name === 'Ancient Power' || moveData.name === 'ancient-power' ||
+               moveData.name === 'Silver Wind' || moveData.name === 'silver-wind' ||
+               moveData.name === 'Ominous Wind' || moveData.name === 'ominous-wind') {
+        // 10% chance to raise all stats
+        if (Math.random() < 0.1) {
+            const msg1 = changeStatStage(attacker, 'attack', 1);
+            const msg2 = changeStatStage(attacker, 'defense', 1);
+            const msg3 = changeStatStage(attacker, 'spAttack', 1);
+            const msg4 = changeStatStage(attacker, 'spDefense', 1);
+            const msg5 = changeStatStage(attacker, 'speed', 1);
+            if (msg1) effects.push(msg1);
+            if (msg2) effects.push(msg2);
+            if (msg3) effects.push(msg3);
+            if (msg4) effects.push(msg4);
+            if (msg5) effects.push(msg5);
+        }
+    } else if (moveData.name === 'Iron Head' || moveData.name === 'iron-head' ||
+               moveData.name === 'Zen Headbutt' || moveData.name === 'zen-headbutt' ||
+               moveData.name === 'Headbutt' || moveData.name === 'headbutt') {
+        // 30% chance to flinch (20% for Headbutt)
+        const flinchChance = (moveData.name === 'Headbutt' || moveData.name === 'headbutt') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Steel Wing' || moveData.name === 'steel-wing') {
+        // 10% chance to raise user's Defense
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(attacker, 'defense', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Stone Edge' || moveData.name === 'stone-edge') {
+        // High crit ratio (already handled in damage calculation)
+    } else if (moveData.name === 'Meteor Mash' || moveData.name === 'meteor-mash') {
+        // 20% chance to raise Attack
+        if (Math.random() < 0.2) {
+            const msg = changeStatStage(attacker, 'attack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Power-Up Punch' || moveData.name === 'power-up-punch') {
+        // 100% chance to raise Attack
+        const msg = changeStatStage(attacker, 'attack', 1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Charge Beam' || moveData.name === 'charge-beam') {
+        // 70% chance to raise Sp.Atk
+        if (Math.random() < 0.7) {
+            const msg = changeStatStage(attacker, 'spAttack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Fiery Dance' || moveData.name === 'fiery-dance') {
+        // 50% chance to raise Sp.Atk
+        if (Math.random() < 0.5) {
+            const msg = changeStatStage(attacker, 'spAttack', 1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Icy Wind' || moveData.name === 'icy-wind') {
+        // Already handled above with Bulldoze
+    } else if (moveData.name === 'Razor Shell' || moveData.name === 'razor-shell') {
+        // 50% chance to lower Defense
+        if (Math.random() < 0.5) {
+            const msg = changeStatStage(defender, 'defense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Bug Buzz' || moveData.name === 'bug-buzz') {
+        // 10% chance to lower Sp.Def
+        if (Math.random() < 0.1) {
+            const msg = changeStatStage(defender, 'spDefense', -1);
+            if (msg) effects.push(msg);
+        }
+    } else if (moveData.name === 'Air Slash' || moveData.name === 'air-slash' ||
+               moveData.name === 'Astonish' || moveData.name === 'astonish') {
+        // 30% chance to flinch
+        if (Math.random() < 0.3) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Extrasensory' || moveData.name === 'extrasensory' ||
+               moveData.name === 'Stomp' || moveData.name === 'stomp') {
+        // 10-30% chance to flinch
+        const flinchChance = (moveData.name === 'Extrasensory' || moveData.name === 'extrasensory') ? 0.1 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Bite' || moveData.name === 'bite' ||
+               moveData.name === 'Dark Pulse' || moveData.name === 'dark-pulse') {
+        // 30% chance to flinch (20% for Bite)
+        const flinchChance = (moveData.name === 'Bite' || moveData.name === 'bite') ? 0.2 : 0.3;
+        if (Math.random() < flinchChance) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam' ||
+               moveData.name === 'Ice Punch' || moveData.name === 'ice-punch') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冻结了！`);
+        }
+    } else if (moveData.name === 'Blizzard' || moveData.name === 'blizzard') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冻结了！`);
+        }
+    } else if (moveData.name === 'Tri Attack' || moveData.name === 'tri-attack') {
+        // 20% chance to burn, freeze, or paralyze
+        if (Math.random() < 0.2) {
+            const statusRoll = Math.random();
+            if (statusRoll < 0.33 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+                effects.push(`${defender.name} 被灼伤了！`);
+            } else if (statusRoll < 0.67 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+                effects.push(`${defender.name} 被冻结了！`);
+            } else if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+                effects.push(`${defender.name} 被麻痹了！`);
+            }
+        }
+    } else if (moveData.name === 'Nuzzle' || moveData.name === 'nuzzle') {
+        // 100% chance to paralyze
+        if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+            effects.push(`${defender.name} 被麻痹了！`);
+        }
+    } else if (moveData.name === 'Fake Out' || moveData.name === 'fake-out') {
+        // 100% chance to flinch (only works on first turn, but we'll simplify)
+        applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+        effects.push(`${defender.name} 畏缩了！`);
+    }
+    
+    // Stat-changing moves
+    if (moveData.name === 'Swords Dance' || moveData.name === 'swords-dance') {
+        const msg = changeStatStage(attacker, 'attack', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Dragon Dance' || moveData.name === 'dragon-dance') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'speed', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Nasty Plot' || moveData.name === 'nasty-plot') {
+        const msg = changeStatStage(attacker, 'spAttack', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Calm Mind' || moveData.name === 'calm-mind') {
+        const msg1 = changeStatStage(attacker, 'spAttack', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Quiver Dance' || moveData.name === 'quiver-dance') {
+        const msg1 = changeStatStage(attacker, 'spAttack', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        const msg3 = changeStatStage(attacker, 'speed', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+    } else if (moveData.name === 'Shell Smash' || moveData.name === 'shell-smash') {
+        // +2 Atk, SpA, Spe; -1 Def, SpD
+        const msg1 = changeStatStage(attacker, 'attack', 2);
+        const msg2 = changeStatStage(attacker, 'spAttack', 2);
+        const msg3 = changeStatStage(attacker, 'speed', 2);
+        const msg4 = changeStatStage(attacker, 'defense', -1);
+        const msg5 = changeStatStage(attacker, 'spDefense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+        if (msg4) effects.push(msg4);
+        if (msg5) effects.push(msg5);
+    } else if (moveData.name === 'Bulk Up' || moveData.name === 'bulk-up') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'defense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Curse' || moveData.name === 'curse') {
+        // For Ghost types, different effect; for others: +1 Atk/Def, -1 Spe
+        if (attacker.data.types.some(t => t.type.name === 'ghost')) {
+            // Ghost-type Curse (self-damage, but we'll skip for now)
+            effects.push('但是失败了！');
+        } else {
+            const msg1 = changeStatStage(attacker, 'attack', 1);
+            const msg2 = changeStatStage(attacker, 'defense', 1);
+            const msg3 = changeStatStage(attacker, 'speed', -1);
+            if (msg1) effects.push(msg1);
+            if (msg2) effects.push(msg2);
+            if (msg3) effects.push(msg3);
+        }
+    } else if (moveData.name === 'Agility' || moveData.name === 'agility' ||
+               moveData.name === 'Rock Polish' || moveData.name === 'rock-polish') {
+        const msg = changeStatStage(attacker, 'speed', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Iron Defense' || moveData.name === 'iron-defense' ||
+               moveData.name === 'Acid Armor' || moveData.name === 'acid-armor') {
+        const msg = changeStatStage(attacker, 'defense', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Amnesia' || moveData.name === 'amnesia') {
+        const msg = changeStatStage(attacker, 'spDefense', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Hone Claws' || moveData.name === 'hone-claws') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'accuracy', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Work Up' || moveData.name === 'work-up') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'spAttack', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Coil' || moveData.name === 'coil') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'defense', 1);
+        const msg3 = changeStatStage(attacker, 'accuracy', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+    } else if (moveData.name === 'Growl' || moveData.name === 'growl') {
+        const msg = changeStatStage(defender, 'attack', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Tail Whip' || moveData.name === 'tail-whip' || moveData.name === 'Leer' || moveData.name === 'leer') {
+        const msg = changeStatStage(defender, 'defense', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'String Shot' || moveData.name === 'string-shot') {
+        const msg = changeStatStage(defender, 'speed', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Scary Face' || moveData.name === 'scary-face' ||
+               moveData.name === 'Cotton Spore' || moveData.name === 'cotton-spore') {
+        const msg = changeStatStage(defender, 'speed', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Screech' || moveData.name === 'screech') {
+        const msg = changeStatStage(defender, 'defense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Charm' || moveData.name === 'charm' ||
+               moveData.name === 'Feather Dance' || moveData.name === 'feather-dance') {
+        const msg = changeStatStage(defender, 'attack', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Fake Tears' || moveData.name === 'fake-tears') {
+        const msg = changeStatStage(defender, 'spDefense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Metal Sound' || moveData.name === 'metal-sound') {
+        const msg = changeStatStage(defender, 'spDefense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Tickle' || moveData.name === 'tickle') {
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'defense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Shift Gear' || moveData.name === 'shift-gear') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'speed', 2);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Autotomize' || moveData.name === 'autotomize') {
+        const msg = changeStatStage(attacker, 'speed', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Stockpile' || moveData.name === 'stockpile') {
+        const msg1 = changeStatStage(attacker, 'defense', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Cosmic Power' || moveData.name === 'cosmic-power') {
+        const msg1 = changeStatStage(attacker, 'defense', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Growth' || moveData.name === 'growth') {
+        // +1 Atk/SpA normally, +2 in sun
+        const boost = (gameState.weather === WEATHER_CONDITIONS.SUN) ? 2 : 1;
+        const msg1 = changeStatStage(attacker, 'attack', boost);
+        const msg2 = changeStatStage(attacker, 'spAttack', boost);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Acupressure' || moveData.name === 'acupressure') {
+        // Sharply raises a random stat
+        const stats = ['attack', 'defense', 'spAttack', 'spDefense', 'speed', 'accuracy', 'evasion'];
+        const randomStat = stats[Math.floor(Math.random() * stats.length)];
+        const msg = changeStatStage(attacker, randomStat, 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Double Team' || moveData.name === 'double-team' ||
+               moveData.name === 'Minimize' || moveData.name === 'minimize') {
+        const msg = changeStatStage(attacker, 'evasion', 1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Flash' || moveData.name === 'flash' ||
+               moveData.name === 'Sand Attack' || moveData.name === 'sand-attack' ||
+               moveData.name === 'Smokescreen' || moveData.name === 'smokescreen') {
+        const msg = changeStatStage(defender, 'accuracy', -1);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Swagger' || moveData.name === 'swagger' ||
+               moveData.name === 'Flatter' || moveData.name === 'flatter') {
+        // Raises target's Attack/SpA and confuses it
+        const stat = (moveData.name === 'Flatter' || moveData.name === 'flatter') ? 'spAttack' : 'attack';
+        const msg = changeStatStage(defender, stat, 2);
+        if (msg) effects.push(msg);
+        if (applyVolatileStatus(defender, VOLATILE_STATUS.CONFUSION)) {
+            effects.push(`${defender.name} 混乱了！`);
+            defender.confusionTurns = 0;
+        }
+    } else if (moveData.name === 'Noble Roar' || moveData.name === 'noble-roar' ||
+               moveData.name === 'Venom Drench' || moveData.name === 'venom-drench') {
+        // Lowers Attack and Sp.Atk
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'spAttack', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Parting Shot' || moveData.name === 'parting-shot') {
+        // Lowers Attack and Sp.Atk, then switches out
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'spAttack', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    }
+    
+    // Confusion
+    if (moveData.name === 'Confuse Ray' || moveData.name === 'confuse-ray' || moveData.name === 'Supersonic' || moveData.name === 'supersonic') {
+        if (applyVolatileStatus(defender, VOLATILE_STATUS.CONFUSION)) {
+            effects.push(`${defender.name} 混乱了！`);
+            defender.confusionTurns = 0;
+        }
+    }
+    
+    // Weather-setting moves
+    if (moveData.name === 'Sunny Day' || moveData.name === 'sunny-day') {
+        gameState.weather = WEATHER_CONDITIONS.SUN;
+        gameState.weatherTurns = 5;
+        effects.push('阳光变得很强烈！');
+    } else if (moveData.name === 'Rain Dance' || moveData.name === 'rain-dance') {
+        gameState.weather = WEATHER_CONDITIONS.RAIN;
+        gameState.weatherTurns = 5;
+        effects.push('开始下雨了！');
+    } else if (moveData.name === 'Sandstorm' || moveData.name === 'sandstorm') {
+        gameState.weather = WEATHER_CONDITIONS.SANDSTORM;
+        gameState.weatherTurns = 5;
+        effects.push('沙暴开始了！');
+    } else if (moveData.name === 'Hail' || moveData.name === 'hail') {
+        gameState.weather = WEATHER_CONDITIONS.HAIL;
+        gameState.weatherTurns = 5;
+        effects.push('开始下冰雹了！');
+    }
+    
+    // Terrain-setting moves
+    if (moveData.name === 'Electric Terrain' || moveData.name === 'electric-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.ELECTRIC;
+        gameState.terrainTurns = 5;
+        effects.push('脚下涌起了电流！');
+    } else if (moveData.name === 'Grassy Terrain' || moveData.name === 'grassy-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.GRASSY;
+        gameState.terrainTurns = 5;
+        effects.push('脚下的草生长茂盛了！');
+    } else if (moveData.name === 'Misty Terrain' || moveData.name === 'misty-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.MISTY;
+        gameState.terrainTurns = 5;
+        effects.push('脚下被雾笼罩了！');
+    } else if (moveData.name === 'Psychic Terrain' || moveData.name === 'psychic-terrain') {
+        gameState.terrain = TERRAIN_CONDITIONS.PSYCHIC;
+        gameState.terrainTurns = 5;
+        effects.push('脚下变得很奇怪！');
+    }
+    
+    // Flinch-inducing moves (30% chance for most)
+    if (moveData.name === 'Fake Out' || moveData.name === 'fake-out') {
+        // Fake Out always flinches on first turn
+        if (gameState.turnCount === 1) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    } else if (moveData.name === 'Air Slash' || moveData.name === 'air-slash' ||
+               moveData.name === 'Iron Head' || moveData.name === 'iron-head' ||
+               moveData.name === 'Zen Headbutt' || moveData.name === 'zen-headbutt') {
+        // 30% flinch chance
+        if (Math.random() < 0.3) {
+            applyVolatileStatus(defender, VOLATILE_STATUS.FLINCH);
+            effects.push(`${defender.name} 畏缩了！`);
+        }
+    }
+    
+    // Protect
+    if (moveData.name === 'Protect' || moveData.name === 'protect' || moveData.name === 'Detect' || moveData.name === 'detect') {
+        if (!attacker.protectUsed) {
+            applyVolatileStatus(attacker, VOLATILE_STATUS.PROTECT);
+            effects.push(`${attacker.name} 保护了自己！`);
+            attacker.protectUsed = true;
+        } else {
+            effects.push('但是失败了！');
+        }
+    }
+    
+    return effects;
+}
+
 async function loadPokemonList() {
     // Try to use fallback data first if available
     if (typeof POKEMON_LIST !== 'undefined' && POKEMON_LIST.length > 0) {
@@ -179,8 +870,8 @@ async function loadPokemonList() {
     }
     
     try {
-        // Load first 151 Pokemon (Gen 1) for simplicity, can be expanded
-        const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=151');
+        // Load all Pokemon (Gen 1-9, 1025 total)
+        const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=1025');
         const data = await response.json();
         gameState.availablePokemon = data.results;
         return data.results;
@@ -252,20 +943,520 @@ function getTypeEffectiveness(attackType, defenderTypes) {
     return effectiveness;
 }
 
+// ==================== Status Condition Functions ====================
+
+function applyStatusCondition(pokemon, status) {
+    // Can't apply status if already has one (except volatile)
+    if (pokemon.status !== STATUS_CONDITIONS.NONE && pokemon.status !== status) {
+        return false;
+    }
+    
+    // Type immunities
+    if (status === STATUS_CONDITIONS.BURN && pokemon.data.types.some(t => t.type.name === 'fire')) {
+        return false;
+    }
+    if (status === STATUS_CONDITIONS.POISON && pokemon.data.types.some(t => t.type.name === 'poison' || t.type.name === 'steel')) {
+        return false;
+    }
+    if (status === STATUS_CONDITIONS.PARALYSIS && pokemon.data.types.some(t => t.type.name === 'electric')) {
+        return false;
+    }
+    
+    pokemon.status = status;
+    pokemon.statusTurns = 0;
+    return true;
+}
+
+function applyVolatileStatus(pokemon, volatileStatus) {
+    if (!pokemon.volatileStatus.includes(volatileStatus)) {
+        pokemon.volatileStatus.push(volatileStatus);
+        return true;
+    }
+    return false;
+}
+
+function removeVolatileStatus(pokemon, volatileStatus) {
+    const index = pokemon.volatileStatus.indexOf(volatileStatus);
+    if (index > -1) {
+        pokemon.volatileStatus.splice(index, 1);
+    }
+}
+
+function getStatusDamage(pokemon) {
+    let damage = 0;
+    
+    if (pokemon.status === STATUS_CONDITIONS.BURN) {
+        damage = Math.floor(pokemon.maxHP / 16);
+    } else if (pokemon.status === STATUS_CONDITIONS.POISON) {
+        damage = Math.floor(pokemon.maxHP / 8);
+    } else if (pokemon.status === STATUS_CONDITIONS.BADLY_POISON) {
+        pokemon.statusTurns++;
+        damage = Math.floor((pokemon.maxHP * pokemon.statusTurns) / 16);
+    }
+    
+    return damage;
+}
+
+function canMove(pokemon) {
+    // Check if Pokemon flinched
+    if (pokemon.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        return { canMove: false, message: `${pokemon.name} 畏缩了！` };
+    }
+    
+    // Check if Pokemon is frozen
+    if (pokemon.status === STATUS_CONDITIONS.FREEZE) {
+        // 20% chance to thaw
+        if (Math.random() < 0.2) {
+            pokemon.status = STATUS_CONDITIONS.NONE;
+            return { canMove: true, message: `${pokemon.name} 解冻了！` };
+        }
+        return { canMove: false, message: `${pokemon.name} 冻住了！` };
+    }
+    
+    // Check if Pokemon is asleep
+    if (pokemon.status === STATUS_CONDITIONS.SLEEP) {
+        pokemon.statusTurns++;
+        if (pokemon.statusTurns >= 3) {
+            pokemon.status = STATUS_CONDITIONS.NONE;
+            pokemon.statusTurns = 0;
+            return { canMove: true, message: `${pokemon.name} 醒了！` };
+        }
+        return { canMove: false, message: `${pokemon.name} 正在睡觉！` };
+    }
+    
+    // Check if Pokemon is paralyzed (25% chance to be fully paralyzed)
+    if (pokemon.status === STATUS_CONDITIONS.PARALYSIS) {
+        if (Math.random() < 0.25) {
+            return { canMove: false, message: `${pokemon.name} 身体麻痹了！` };
+        }
+    }
+    
+    // Check confusion
+    if (pokemon.volatileStatus.includes(VOLATILE_STATUS.CONFUSION)) {
+        pokemon.confusionTurns++;
+        if (pokemon.confusionTurns >= 4 || Math.random() < 0.33) {
+            removeVolatileStatus(pokemon, VOLATILE_STATUS.CONFUSION);
+            pokemon.confusionTurns = 0;
+            if (pokemon.confusionTurns === 0) {
+                return { canMove: true, message: `${pokemon.name} 从混乱中恢复了！` };
+            }
+        }
+        
+        // 33% chance to hit itself in confusion
+        if (Math.random() < 0.33) {
+            const confusionDamage = Math.floor(pokemon.stats.attack * 40 / pokemon.stats.defense / 50 + 2);
+            return { canMove: false, message: `${pokemon.name} 在混乱中攻击了自己！`, selfDamage: confusionDamage };
+        }
+    }
+    
+    return { canMove: true };
+}
+
+function getStatMultiplier(statChange) {
+    if (statChange >= 0) {
+        return (2 + statChange) / 2;
+    } else {
+        return 2 / (2 - statChange);
+    }
+}
+
+function changeStatStage(pokemon, stat, stages) {
+    const oldValue = pokemon.statChanges[stat];
+    pokemon.statChanges[stat] = Math.max(-6, Math.min(6, oldValue + stages));
+    
+    if (pokemon.statChanges[stat] === oldValue) {
+        return null; // No change
+    }
+    
+    const direction = stages > 0 ? '上升' : '下降';
+    const amount = Math.abs(stages) === 1 ? '' : 
+                   Math.abs(stages) === 2 ? '大幅' : 
+                   Math.abs(stages) === 3 ? '极大地' : '剧烈地';
+    
+    const statNames = {
+        attack: '攻击',
+        defense: '防御',
+        spAttack: '特攻',
+        spDefense: '特防',
+        speed: '速度',
+        accuracy: '命中率',
+        evasion: '闪避率'
+    };
+    
+    return `${pokemon.name} 的 ${statNames[stat]} ${amount}${direction}了！`;
+}
+
+function getModifiedStat(pokemon, statName) {
+    let baseStat = pokemon.stats[statName];
+    
+    // Apply stat stage multiplier
+    const multiplier = getStatMultiplier(pokemon.statChanges[statName]);
+    let modifiedStat = Math.floor(baseStat * multiplier);
+    
+    // Apply status effects
+    if (statName === 'attack' && pokemon.status === STATUS_CONDITIONS.BURN) {
+        modifiedStat = Math.floor(modifiedStat * 0.5);
+    }
+    if (statName === 'speed' && pokemon.status === STATUS_CONDITIONS.PARALYSIS) {
+        modifiedStat = Math.floor(modifiedStat * 0.5);
+    }
+    
+    // Apply weather effects
+    if (gameState.weather === WEATHER_CONDITIONS.SANDSTORM && 
+        pokemon.data.types.some(t => t.type.name === 'rock') &&
+        statName === 'spDefense') {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    // Apply ability effects
+    if (statName === 'speed') {
+        // Chlorophyll doubles speed in sun
+        if (pokemon.ability === 'Chlorophyll' && gameState.weather === WEATHER_CONDITIONS.SUN) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Swift Swim doubles speed in rain
+        if (pokemon.ability === 'Swift Swim' && gameState.weather === WEATHER_CONDITIONS.RAIN) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Sand Rush doubles speed in sandstorm
+        if (pokemon.ability === 'Sand Rush' && gameState.weather === WEATHER_CONDITIONS.SANDSTORM) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Slush Rush doubles speed in hail
+        if (pokemon.ability === 'Slush Rush' && gameState.weather === WEATHER_CONDITIONS.HAIL) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+        // Unburden doubles speed when item is consumed/lost
+        if (pokemon.ability === 'Unburden' && !pokemon.item) {
+            modifiedStat = Math.floor(modifiedStat * 2);
+        }
+    }
+    
+    // Huge Power / Pure Power doubles attack
+    if (statName === 'attack' && (pokemon.ability === 'Huge Power' || pokemon.ability === 'Pure Power')) {
+        modifiedStat = Math.floor(modifiedStat * 2);
+    }
+    
+    // Marvel Scale increases defense when statused
+    if (statName === 'defense' && pokemon.ability === 'Marvel Scale' && pokemon.status !== STATUS_CONDITIONS.NONE) {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    // Guts increases attack when statused (ignoring burn)
+    if (statName === 'attack' && pokemon.ability === 'Guts' && pokemon.status !== STATUS_CONDITIONS.NONE) {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    // Fur Coat doubles defense
+    if (statName === 'defense' && pokemon.ability === 'Fur Coat') {
+        modifiedStat = Math.floor(modifiedStat * 2);
+    }
+    
+    // Apply item effects - Choice Scarf
+    if (statName === 'speed' && pokemon.item === 'Choice Scarf') {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    return modifiedStat;
+}
+
 async function calculateDamage(attacker, defender, move) {
     const moveData = await fetchMoveData(move.name);
-    if (!moveData || !moveData.power) return 0;
+    if (!moveData || !moveData.power) {
+        // Check for fixed damage moves
+        if (moveData && (moveData.name === 'Seismic Toss' || moveData.name === 'seismic-toss' ||
+                         moveData.name === 'Night Shade' || moveData.name === 'night-shade')) {
+            // Fixed damage = attacker's level
+            return { 
+                damage: attacker.level, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        } else if (moveData && (moveData.name === 'Dragon Rage' || moveData.name === 'dragon-rage')) {
+            // Fixed 40 damage
+            return { 
+                damage: 40, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        } else if (moveData && (moveData.name === 'Sonic Boom' || moveData.name === 'sonic-boom')) {
+            // Fixed 20 damage
+            return { 
+                damage: 20, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        }
+        
+        return { damage: 0, effectiveness: 1, critical: false, moveType: 'normal' };
+    }
     
     const level = 50;
-    const power = moveData.power;
-    const attackStat = moveData.damage_class.name === 'physical' ? attacker.stats.attack : attacker.stats.spAttack;
-    const defenseStat = moveData.damage_class.name === 'physical' ? defender.stats.defense : defender.stats.spDefense;
+    let power = moveData.power;
+    
+    // Multi-hit moves
+    let hits = 1;
+    if (moveData.name === 'Double Slap' || moveData.name === 'double-slap' ||
+        moveData.name === 'Fury Attack' || moveData.name === 'fury-attack' ||
+        moveData.name === 'Comet Punch' || moveData.name === 'comet-punch' ||
+        moveData.name === 'Fury Swipes' || moveData.name === 'fury-swipes' ||
+        moveData.name === 'Spike Cannon' || moveData.name === 'spike-cannon' ||
+        moveData.name === 'Pin Missile' || moveData.name === 'pin-missile') {
+        // 2-5 hits (35% 2 hits, 35% 3 hits, 15% 4 hits, 15% 5 hits)
+        const rand = Math.random();
+        if (rand < 0.35) hits = 2;
+        else if (rand < 0.70) hits = 3;
+        else if (rand < 0.85) hits = 4;
+        else hits = 5;
+    } else if (moveData.name === 'Double Kick' || moveData.name === 'double-kick' ||
+               moveData.name === 'Bonemerang' || moveData.name === 'bonemerang' ||
+               moveData.name === 'Double Hit' || moveData.name === 'double-hit') {
+        hits = 2;
+    } else if (moveData.name === 'Triple Kick' || moveData.name === 'triple-kick') {
+        hits = 3;
+    } else if (moveData.name === 'Bullet Seed' || moveData.name === 'bullet-seed' ||
+               moveData.name === 'Icicle Spear' || moveData.name === 'icicle-spear' ||
+               moveData.name === 'Rock Blast' || moveData.name === 'rock-blast') {
+        // 2-5 hits (same as above)
+        const rand = Math.random();
+        if (rand < 0.35) hits = 2;
+        else if (rand < 0.70) hits = 3;
+        else if (rand < 0.85) hits = 4;
+        else hits = 5;
+    }
+    
+    // Get modified stats (with stat changes, status, weather)
+    let attackStat = moveData.damage_class.name === 'physical' ? 
+        getModifiedStat(attacker, 'attack') : 
+        getModifiedStat(attacker, 'spAttack');
+    let defenseStat = moveData.damage_class.name === 'physical' ? 
+        getModifiedStat(defender, 'defense') : 
+        getModifiedStat(defender, 'spDefense');
+    
+    // Ability effects on power
+    // Thick Fat halves fire and ice damage
+    if (defender.ability === 'Thick Fat' && (moveData.type.name === 'fire' || moveData.type.name === 'ice')) {
+        power = Math.floor(power * 0.5);
+    }
+    
+    // Heatproof halves fire damage
+    if (defender.ability === 'Heatproof' && moveData.type.name === 'fire') {
+        power = Math.floor(power * 0.5);
+    }
+    
+    // Dry Skin takes more fire damage
+    if (defender.ability === 'Dry Skin' && moveData.type.name === 'fire') {
+        power = Math.floor(power * 1.25);
+    }
+    
+    // Fluffy halves contact move damage (doubles fire damage)
+    if (defender.ability === 'Fluffy') {
+        if (moveData.meta && moveData.meta.ailment && moveData.meta.ailment.name === 'contact') {
+            power = Math.floor(power * 0.5);
+        }
+        if (moveData.type.name === 'fire') {
+            power = Math.floor(power * 2);
+        }
+    }
+    
+    // Iron Fist boosts punch moves by 20%
+    if (attacker.ability === 'Iron Fist' && (
+        moveData.name.includes('punch') || moveData.name.includes('Punch') ||
+        moveData.name === 'hammer-arm' || moveData.name === 'meteor-mash' ||
+        moveData.name === 'sky-uppercut' || moveData.name === 'drain-punch'
+    )) {
+        power = Math.floor(power * 1.2);
+    }
+    
+    // Reckless boosts recoil moves by 20%
+    if (attacker.ability === 'Reckless' && (
+        moveData.name === 'brave-bird' || moveData.name === 'flare-blitz' ||
+        moveData.name === 'double-edge' || moveData.name === 'head-smash' ||
+        moveData.name === 'take-down' || moveData.name === 'submission' ||
+        moveData.name === 'wild-charge'
+    )) {
+        power = Math.floor(power * 1.2);
+    }
+    
+    // Sheer Force boosts moves with secondary effects by 30% (removes secondary)
+    if (attacker.ability === 'Sheer Force' && moveData.meta && moveData.meta.ailment_chance > 0) {
+        power = Math.floor(power * 1.3);
+    }
+    
+    // Technician boosts moves with 60 power or less by 50%
+    if (attacker.ability === 'Technician' && power <= 60) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Adaptability increases STAB from 1.5x to 2x (will be handled below)
+    
+    // Strong Jaw boosts bite moves by 50%
+    if (attacker.ability === 'Strong Jaw' && (
+        moveData.name.includes('bite') || moveData.name.includes('Bite') ||
+        moveData.name === 'crunch' || moveData.name === 'fire-fang' ||
+        moveData.name === 'ice-fang' || moveData.name === 'thunder-fang' ||
+        moveData.name === 'poison-fang' || moveData.name === 'psychic-fangs'
+    )) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Mega Launcher boosts pulse/aura moves by 50%
+    if (attacker.ability === 'Mega Launcher' && (
+        moveData.name.includes('pulse') || moveData.name.includes('Pulse') ||
+        moveData.name === 'aura-sphere' || moveData.name === 'dragon-pulse' ||
+        moveData.name === 'water-pulse' || moveData.name === 'dark-pulse'
+    )) {
+        power = Math.floor(power * 1.5);
+    }
+    
+    // Tough Claws boosts contact moves by 30%
+    if (attacker.ability === 'Tough Claws' && moveData.meta && moveData.meta.ailment && 
+        moveData.meta.ailment.name === 'contact') {
+        power = Math.floor(power * 1.3);
+    }
+    
+    // Analytic boosts power by 30% when moving last (simplified - always apply)
+    // (In real game, would check turn order)
+    
+    // Sand Force boosts Rock/Ground/Steel in sandstorm
+    if (attacker.ability === 'Sand Force' && gameState.weather === WEATHER_CONDITIONS.SANDSTORM &&
+        (moveData.type.name === 'rock' || moveData.type.name === 'ground' || moveData.type.name === 'steel')) {
+        power = Math.floor(power * 1.3);
+    }
+    
+    // Item effects - Assault Vest
+    if (defender.item === 'Assault Vest' && moveData.damage_class.name === 'special') {
+        defenseStat = Math.floor(defenseStat * 1.5);
+    }
+    
+    // Item effects - Choice Specs/Band
+    if (attacker.item === 'Choice Specs' && moveData.damage_class.name === 'special') {
+        attackStat = Math.floor(attackStat * 1.5);
+    } else if (attacker.item === 'Choice Band' && moveData.damage_class.name === 'physical') {
+        attackStat = Math.floor(attackStat * 1.5);
+    }
     
     // Check STAB (Same Type Attack Bonus)
-    const stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
+    // Adaptability increases STAB from 1.5x to 2x
+    let stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
+    if (attacker.ability === 'Adaptability' && stab === 1.5) {
+        stab = 2.0;
+    }
     
     // Type effectiveness
-    const effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
+    let effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
+    
+    // Ability immunities and absorptions
+    // Levitate - immune to ground moves
+    if (defender.ability === 'Levitate' && moveData.type.name === 'ground') {
+        effectiveness = 0;
+    }
+    
+    // Water Absorb - immune to water moves and heal
+    if (defender.ability === 'Water Absorb' && moveData.type.name === 'water') {
+        effectiveness = 0;
+        // Heal will be applied separately
+    }
+    
+    // Volt Absorb - immune to electric moves and heal
+    if (defender.ability === 'Volt Absorb' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Flash Fire - immune to fire moves and boost fire moves
+    if (defender.ability === 'Flash Fire' && moveData.type.name === 'fire') {
+        effectiveness = 0;
+        defender.flashFireActive = true; // Mark Flash Fire as activated
+    }
+    
+    // Storm Drain - immune to water moves, boosts SpA
+    if (defender.ability === 'Storm Drain' && moveData.type.name === 'water') {
+        effectiveness = 0;
+    }
+    
+    // Lightning Rod - immune to electric moves, boosts SpA
+    if (defender.ability === 'Lightning Rod' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Sap Sipper - immune to grass moves, boosts Attack
+    if (defender.ability === 'Sap Sipper' && moveData.type.name === 'grass') {
+        effectiveness = 0;
+    }
+    
+    // Motor Drive - immune to electric moves, boosts Speed
+    if (defender.ability === 'Motor Drive' && moveData.type.name === 'electric') {
+        effectiveness = 0;
+    }
+    
+    // Dry Skin - heals from water moves
+    if (defender.ability === 'Dry Skin' && moveData.type.name === 'water') {
+        effectiveness = 0;
+    }
+    
+    // Wonder Guard - only super effective moves hit
+    if (defender.ability === 'Wonder Guard' && effectiveness <= 1) {
+        effectiveness = 0;
+    }
+    
+    // Filter / Solid Rock - reduce super effective damage
+    if ((defender.ability === 'Filter' || defender.ability === 'Solid Rock' || 
+         defender.ability === 'Prism Armor') && effectiveness > 1) {
+        effectiveness = effectiveness * 0.75;
+    }
+    
+    // Multiscale / Shadow Shield - reduce damage at full HP
+    if ((defender.ability === 'Multiscale' || defender.ability === 'Shadow Shield') && 
+        defender.hp === defender.stats.hp) {
+        effectiveness = effectiveness * 0.5;
+    }
+    
+    // Weather effects
+    let weatherMultiplier = 1;
+    if (gameState.weather === WEATHER_CONDITIONS.SUN) {
+        if (moveData.type.name === 'fire') weatherMultiplier = 1.5;
+        if (moveData.type.name === 'water') weatherMultiplier = 0.5;
+        // Chlorophyll doubles speed in sun (handled in getModifiedStat)
+    } else if (gameState.weather === WEATHER_CONDITIONS.RAIN) {
+        if (moveData.type.name === 'water') weatherMultiplier = 1.5;
+        if (moveData.type.name === 'fire') weatherMultiplier = 0.5;
+    }
+    
+    // Terrain effects
+    let terrainMultiplier = 1;
+    // Check if Pokemon is grounded (not flying type or Levitate)
+    const isGrounded = !attacker.data.types.some(t => t.type.name === 'flying') && 
+                       attacker.ability !== 'Levitate';
+    
+    if (isGrounded) {
+        if (gameState.terrain === TERRAIN_CONDITIONS.ELECTRIC && moveData.type.name === 'electric') {
+            terrainMultiplier = 1.3;
+        } else if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY && moveData.type.name === 'grass') {
+            terrainMultiplier = 1.3;
+        } else if (gameState.terrain === TERRAIN_CONDITIONS.PSYCHIC && moveData.type.name === 'psychic') {
+            terrainMultiplier = 1.3;
+        }
+        
+        // Grassy Terrain reduces Earthquake damage
+        if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY && moveData.name === 'earthquake') {
+            terrainMultiplier = 0.5;
+        }
+    }
+    
+    // Misty Terrain reduces dragon move damage to grounded targets
+    if (gameState.terrain === TERRAIN_CONDITIONS.MISTY && moveData.type.name === 'dragon') {
+        const defenderGrounded = !defender.data.types.some(t => t.type.name === 'flying') && 
+                                 defender.ability !== 'Levitate';
+        if (defenderGrounded) {
+            terrainMultiplier = 0.5;
+        }
+    }
     
     // Random factor (85-100%)
     const random = (Math.random() * 0.15 + 0.85);
@@ -273,15 +1464,29 @@ async function calculateDamage(attacker, defender, move) {
     // Critical hit (6.25% chance)
     const critical = Math.random() < 0.0625 ? 2 : 1;
     
-    // Damage formula (simplified Gen VI formula)
+    // Damage formula (Gen VI formula)
     const baseDamage = ((2 * level / 5 + 2) * power * attackStat / defenseStat / 50 + 2);
-    const damage = Math.floor(baseDamage * stab * effectiveness * random * critical);
+    let damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * terrainMultiplier * random * critical);
+    
+    // Flash Fire boosts fire moves by 50% when activated
+    if (attacker.ability === 'Flash Fire' && attacker.flashFireActive && moveData.type.name === 'fire') {
+        damage = Math.floor(damage * 1.5);
+    }
+    
+    // Life Orb boosts damage by 30%
+    if (attacker.item === 'Life Orb' && damage > 0) {
+        damage = Math.floor(damage * 1.3);
+    }
+    
+    // Apply multi-hit
+    damage = damage * hits;
     
     return {
         damage: Math.max(1, damage),
         effectiveness,
         critical: critical === 2,
-        moveType: moveData.type.name
+        moveType: moveData.type.name,
+        hits: hits
     };
 }
 
@@ -367,7 +1572,16 @@ async function initializeBattle() {
                 level: opponentData.level,
                 currentHP: stats.hp,
                 maxHP: stats.hp,
-                fainted: false
+                fainted: false,
+                status: STATUS_CONDITIONS.NONE,
+                volatileStatus: [],
+                statChanges: { attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0, accuracy: 0, evasion: 0 },
+                statusTurns: 0,
+                confusionTurns: 0,
+                substituteHP: 0,
+                protectUsed: false,
+                ability: opponentData.ability,
+                item: opponentData.item
             });
         }
     }
@@ -390,7 +1604,19 @@ function renderBattle() {
     const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     // Render opponent
-    document.getElementById('opponentName').textContent = currentOpponent.name;
+    let opponentNameText = currentOpponent.name;
+    if (currentOpponent.status !== STATUS_CONDITIONS.NONE) {
+        const statusIcons = {
+            [STATUS_CONDITIONS.BURN]: '🔥',
+            [STATUS_CONDITIONS.POISON]: '☠️',
+            [STATUS_CONDITIONS.BADLY_POISON]: '💀',
+            [STATUS_CONDITIONS.PARALYSIS]: '⚡',
+            [STATUS_CONDITIONS.SLEEP]: '💤',
+            [STATUS_CONDITIONS.FREEZE]: '❄️'
+        };
+        opponentNameText += ' ' + statusIcons[currentOpponent.status];
+    }
+    document.getElementById('opponentName').textContent = opponentNameText;
     document.getElementById('opponentLevel').textContent = `Lv.${currentOpponent.level}`;
     document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
     updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
@@ -399,7 +1625,19 @@ function renderBattle() {
     opponentSprite.innerHTML = `<img src="${currentOpponent.data.sprites.front_default}" alt="${currentOpponent.name}">`;
     
     // Render player
-    document.getElementById('playerName').textContent = currentPlayer.name;
+    let playerNameText = currentPlayer.name;
+    if (currentPlayer.status !== STATUS_CONDITIONS.NONE) {
+        const statusIcons = {
+            [STATUS_CONDITIONS.BURN]: '🔥',
+            [STATUS_CONDITIONS.POISON]: '☠️',
+            [STATUS_CONDITIONS.BADLY_POISON]: '💀',
+            [STATUS_CONDITIONS.PARALYSIS]: '⚡',
+            [STATUS_CONDITIONS.SLEEP]: '💤',
+            [STATUS_CONDITIONS.FREEZE]: '❄️'
+        };
+        playerNameText += ' ' + statusIcons[currentPlayer.status];
+    }
+    document.getElementById('playerName').textContent = playerNameText;
     document.getElementById('playerLevel').textContent = `Lv.${currentPlayer.level}`;
     document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
     updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
@@ -559,32 +1797,84 @@ async function executeTurn(moveIndex) {
     const moveButtons = document.querySelectorAll('.move-btn');
     moveButtons.forEach(btn => btn.disabled = true);
     
+    gameState.turnCount++;
+    
     const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
     const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     const playerMove = currentPlayer.moves[moveIndex];
     const opponentMove = selectAIMove(currentOpponent, currentPlayer);
     
-    // Determine turn order based on speed
-    const playerSpeed = currentPlayer.stats.speed;
-    const opponentSpeed = currentOpponent.stats.speed;
+    // Get move priorities
+    const playerPriority = getMovePriority(playerMove.name);
+    const opponentPriority = getMovePriority(opponentMove.name);
+    
+    // Determine turn order based on priority, then speed
+    const playerSpeed = getModifiedStat(currentPlayer, 'speed');
+    const opponentSpeed = getModifiedStat(currentOpponent, 'speed');
     
     let firstAttacker, firstMove, secondAttacker, secondMove;
     
-    if (playerSpeed > opponentSpeed) {
+    if (playerPriority > opponentPriority) {
+        // Player has priority
         firstAttacker = 'player';
         firstMove = playerMove;
         secondAttacker = 'opponent';
         secondMove = opponentMove;
-    } else {
+    } else if (opponentPriority > playerPriority) {
+        // Opponent has priority
         firstAttacker = 'opponent';
         firstMove = opponentMove;
         secondAttacker = 'player';
         secondMove = playerMove;
+    } else if (playerSpeed > opponentSpeed) {
+        // Same priority, player faster
+        firstAttacker = 'player';
+        firstMove = playerMove;
+        secondAttacker = 'opponent';
+        secondMove = opponentMove;
+    } else if (playerSpeed < opponentSpeed) {
+        // Same priority, opponent faster
+        firstAttacker = 'opponent';
+        firstMove = opponentMove;
+        secondAttacker = 'player';
+        secondMove = playerMove;
+    } else {
+        // Speed tie - random
+        if (Math.random() < 0.5) {
+            firstAttacker = 'player';
+            firstMove = playerMove;
+            secondAttacker = 'opponent';
+            secondMove = opponentMove;
+        } else {
+            firstAttacker = 'opponent';
+            firstMove = opponentMove;
+            secondAttacker = 'player';
+            secondMove = playerMove;
+        }
     }
     
     // Execute first attack
-    await executeAttack(firstAttacker, firstMove);
+    const firstPokemon = firstAttacker === 'player' ? currentPlayer : currentOpponent;
+    const canMoveResult = canMove(firstPokemon);
+    
+    if (canMoveResult.message) {
+        addLog(canMoveResult.message);
+        await sleep(500);
+    }
+    
+    if (canMoveResult.canMove) {
+        await executeAttack(firstAttacker, firstMove);
+    } else if (canMoveResult.selfDamage) {
+        // Confusion self-damage
+        firstPokemon.currentHP = Math.max(0, firstPokemon.currentHP - canMoveResult.selfDamage);
+        updateHPBar(firstAttacker, firstPokemon.currentHP, firstPokemon.maxHP);
+        document.getElementById(`${firstAttacker}HP`).textContent = `${firstPokemon.currentHP}/${firstPokemon.maxHP}`;
+        
+        if (firstPokemon.currentHP === 0) {
+            firstPokemon.fainted = true;
+        }
+    }
     
     // Check if battle ended
     if (checkBattleEnd()) {
@@ -605,12 +1895,30 @@ async function executeTurn(moveIndex) {
     await sleep(500);
     
     // Execute second attack if both Pokemon still alive
-    const secondAttackerPokemon = secondAttacker === 'player' ? 
+    const secondPokemon = secondAttacker === 'player' ? 
         gameState.playerTeam[gameState.currentPlayerIndex] : 
         gameState.opponentTeam[gameState.currentOpponentIndex];
     
-    if (!secondAttackerPokemon.fainted) {
-        await executeAttack(secondAttacker, secondMove);
+    if (!secondPokemon.fainted) {
+        const canMoveResult2 = canMove(secondPokemon);
+        
+        if (canMoveResult2.message) {
+            addLog(canMoveResult2.message);
+            await sleep(500);
+        }
+        
+        if (canMoveResult2.canMove) {
+            await executeAttack(secondAttacker, secondMove);
+        } else if (canMoveResult2.selfDamage) {
+            // Confusion self-damage
+            secondPokemon.currentHP = Math.max(0, secondPokemon.currentHP - canMoveResult2.selfDamage);
+            updateHPBar(secondAttacker, secondPokemon.currentHP, secondPokemon.maxHP);
+            document.getElementById(`${secondAttacker}HP`).textContent = `${secondPokemon.currentHP}/${secondPokemon.maxHP}`;
+            
+            if (secondPokemon.currentHP === 0) {
+                secondPokemon.fainted = true;
+            }
+        }
     }
     
     // Check if battle ended
@@ -619,7 +1927,251 @@ async function executeTurn(moveIndex) {
     }
     
     // Check for faints after second attack
-    if (secondAttacker === 'player' && secondAttackerPokemon.fainted) {
+    if (secondAttacker === 'player' && secondPokemon.fainted) {
+        await handleForcedSwitch('player');
+    } else if (secondAttacker === 'opponent' && secondPokemon.fainted) {
+        await switchOpponentPokemon();
+    }
+    
+    // End of turn effects
+    await applyEndOfTurnEffects();
+    
+    checkBattleEnd();
+    
+    // Re-enable move buttons
+    moveButtons.forEach(btn => btn.disabled = false);
+}
+
+async function applyEndOfTurnEffects() {
+    const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
+    const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
+    
+    // Apply status damage to player
+    if (!currentPlayer.fainted && currentPlayer.status !== STATUS_CONDITIONS.NONE) {
+        const damage = getStatusDamage(currentPlayer);
+        if (damage > 0) {
+            currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+            updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+            document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+            
+            if (currentPlayer.status === STATUS_CONDITIONS.BURN) {
+                addLog(`${currentPlayer.name} 受到了灼伤的伤害！`);
+            } else if (currentPlayer.status === STATUS_CONDITIONS.POISON || currentPlayer.status === STATUS_CONDITIONS.BADLY_POISON) {
+                addLog(`${currentPlayer.name} 受到了中毒的伤害！`);
+            }
+            
+            await sleep(500);
+            
+            if (currentPlayer.currentHP === 0) {
+                currentPlayer.fainted = true;
+                addLog(`${currentPlayer.name} 失去了战斗能力！`);
+                await sleep(500);
+            }
+        }
+    }
+    
+    // Apply status damage to opponent
+    if (!currentOpponent.fainted && currentOpponent.status !== STATUS_CONDITIONS.NONE) {
+        const damage = getStatusDamage(currentOpponent);
+        if (damage > 0) {
+            currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+            updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+            document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+            
+            if (currentOpponent.status === STATUS_CONDITIONS.BURN) {
+                addLog(`${currentOpponent.name} 受到了灼伤的伤害！`);
+            } else if (currentOpponent.status === STATUS_CONDITIONS.POISON || currentOpponent.status === STATUS_CONDITIONS.BADLY_POISON) {
+                addLog(`${currentOpponent.name} 受到了中毒的伤害！`);
+            }
+            
+            await sleep(500);
+            
+            if (currentOpponent.currentHP === 0) {
+                currentOpponent.fainted = true;
+                addLog(`${currentOpponent.name} 失去了战斗能力！`);
+                await sleep(500);
+            }
+        }
+    }
+    
+    // Leech Seed damage
+    if (!currentPlayer.fainted && currentPlayer.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+        const damage = Math.floor(currentPlayer.maxHP / 8);
+        currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+        updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+        document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+        addLog(`${currentPlayer.name} 被种子吸取了体力！`);
+        
+        // Heal opponent
+        if (!currentOpponent.fainted) {
+            const heal = Math.min(damage, currentOpponent.maxHP - currentOpponent.currentHP);
+            currentOpponent.currentHP = Math.min(currentOpponent.maxHP, currentOpponent.currentHP + heal);
+            updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+            document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+        }
+        
+        await sleep(500);
+        
+        if (currentPlayer.currentHP === 0) {
+            currentPlayer.fainted = true;
+            addLog(`${currentPlayer.name} 失去了战斗能力！`);
+            await sleep(500);
+        }
+    }
+    
+    if (!currentOpponent.fainted && currentOpponent.volatileStatus.includes(VOLATILE_STATUS.LEECH_SEED)) {
+        const damage = Math.floor(currentOpponent.maxHP / 8);
+        currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+        updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+        document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+        addLog(`${currentOpponent.name} 被种子吸取了体力！`);
+        
+        // Heal player
+        if (!currentPlayer.fainted) {
+            const heal = Math.min(damage, currentPlayer.maxHP - currentPlayer.currentHP);
+            currentPlayer.currentHP = Math.min(currentPlayer.maxHP, currentPlayer.currentHP + heal);
+            updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+            document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+        }
+        
+        await sleep(500);
+        
+        if (currentOpponent.currentHP === 0) {
+            currentOpponent.fainted = true;
+            addLog(`${currentOpponent.name} 失去了战斗能力！`);
+            await sleep(500);
+        }
+    }
+    
+    // Apply weather damage
+    if (gameState.weather !== WEATHER_CONDITIONS.NONE) {
+        gameState.weatherTurns--;
+        
+        if (gameState.weather === WEATHER_CONDITIONS.SANDSTORM) {
+            // Sandstorm damages non-Rock/Ground/Steel types
+            if (!currentPlayer.fainted && 
+                !currentPlayer.data.types.some(t => ['rock', 'ground', 'steel'].includes(t.type.name))) {
+                const damage = Math.floor(currentPlayer.maxHP / 16);
+                currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+                updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                addLog(`${currentPlayer.name} 受到了沙暴的伤害！`);
+                await sleep(500);
+            }
+            
+            if (!currentOpponent.fainted && 
+                !currentOpponent.data.types.some(t => ['rock', 'ground', 'steel'].includes(t.type.name))) {
+                const damage = Math.floor(currentOpponent.maxHP / 16);
+                currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+                updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                addLog(`${currentOpponent.name} 受到了沙暴的伤害！`);
+                await sleep(500);
+            }
+        } else if (gameState.weather === WEATHER_CONDITIONS.HAIL) {
+            // Hail damages non-Ice types
+            if (!currentPlayer.fainted && 
+                !currentPlayer.data.types.some(t => t.type.name === 'ice')) {
+                const damage = Math.floor(currentPlayer.maxHP / 16);
+                currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+                updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                addLog(`${currentPlayer.name} 受到了冰雹的伤害！`);
+                await sleep(500);
+            }
+            
+            if (!currentOpponent.fainted && 
+                !currentOpponent.data.types.some(t => t.type.name === 'ice')) {
+                const damage = Math.floor(currentOpponent.maxHP / 16);
+                currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+                updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                addLog(`${currentOpponent.name} 受到了冰雹的伤害！`);
+                await sleep(500);
+            }
+        }
+        
+        if (gameState.weatherTurns <= 0) {
+            const weatherNames = {
+                [WEATHER_CONDITIONS.SUN]: '晴天',
+                [WEATHER_CONDITIONS.RAIN]: '雨天',
+                [WEATHER_CONDITIONS.SANDSTORM]: '沙暴',
+                [WEATHER_CONDITIONS.HAIL]: '冰雹'
+            };
+            addLog(`${weatherNames[gameState.weather]} 停止了！`);
+            gameState.weather = WEATHER_CONDITIONS.NONE;
+        }
+    }
+    
+    // Clear volatile statuses that last only one turn
+    if (currentPlayer.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        removeVolatileStatus(currentPlayer, VOLATILE_STATUS.PROTECT);
+    }
+    if (currentOpponent.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        removeVolatileStatus(currentOpponent, VOLATILE_STATUS.PROTECT);
+    }
+    
+    // Clear flinch status (only lasts one turn)
+    if (currentPlayer.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        removeVolatileStatus(currentPlayer, VOLATILE_STATUS.FLINCH);
+    }
+    if (currentOpponent.volatileStatus.includes(VOLATILE_STATUS.FLINCH)) {
+        removeVolatileStatus(currentOpponent, VOLATILE_STATUS.FLINCH);
+    }
+    
+    // Terrain effects
+    if (gameState.terrain !== TERRAIN_CONDITIONS.NONE) {
+        gameState.terrainTurns--;
+        
+        // Grassy Terrain healing
+        if (gameState.terrain === TERRAIN_CONDITIONS.GRASSY) {
+            const playerGrounded = !currentPlayer.fainted && 
+                                   !currentPlayer.data.types.some(t => t.type.name === 'flying') && 
+                                   currentPlayer.ability !== 'Levitate';
+            if (playerGrounded) {
+                const heal = Math.floor(currentPlayer.maxHP / 16);
+                const actualHeal = Math.min(heal, currentPlayer.maxHP - currentPlayer.currentHP);
+                if (actualHeal > 0) {
+                    currentPlayer.currentHP = Math.min(currentPlayer.maxHP, currentPlayer.currentHP + heal);
+                    updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                    document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                    addLog(`${currentPlayer.name} 被青草场地治愈了！`);
+                    await sleep(500);
+                }
+            }
+            
+            const opponentGrounded = !currentOpponent.fainted && 
+                                     !currentOpponent.data.types.some(t => t.type.name === 'flying') && 
+                                     currentOpponent.ability !== 'Levitate';
+            if (opponentGrounded) {
+                const heal = Math.floor(currentOpponent.maxHP / 16);
+                const actualHeal = Math.min(heal, currentOpponent.maxHP - currentOpponent.currentHP);
+                if (actualHeal > 0) {
+                    currentOpponent.currentHP = Math.min(currentOpponent.maxHP, currentOpponent.currentHP + heal);
+                    updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                    document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                    addLog(`${currentOpponent.name} 被青草场地治愈了！`);
+                    await sleep(500);
+                }
+            }
+        }
+        
+        if (gameState.terrainTurns <= 0) {
+            const terrainNames = {
+                [TERRAIN_CONDITIONS.ELECTRIC]: '电气场地',
+                [TERRAIN_CONDITIONS.GRASSY]: '青草场地',
+                [TERRAIN_CONDITIONS.MISTY]: '薄雾场地',
+                [TERRAIN_CONDITIONS.PSYCHIC]: '精神场地'
+            };
+            addLog(`${terrainNames[gameState.terrain]} 消失了！`);
+            gameState.terrain = TERRAIN_CONDITIONS.NONE;
+        }
+    }
+    
+    // Reset protect success flag if not used this turn
+    currentPlayer.protectUsed = false;
+    currentOpponent.protectUsed = false;
+}
         await handleForcedSwitch('player');
     } else if (secondAttacker === 'opponent' && secondAttackerPokemon.fainted) {
         await switchOpponentPokemon();
@@ -684,6 +2236,30 @@ async function executeAttack(attacker, move) {
         gameState.opponentTeam[gameState.currentOpponentIndex] : 
         gameState.playerTeam[gameState.currentPlayerIndex];
     
+    // Check if defender is protected
+    if (defenderPokemon.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        addLog(`${attackerPokemon.name} 使用了 ${move.displayName}！`);
+        await sleep(300);
+        addLog(`${defenderPokemon.name} 保护了自己！`);
+        return;
+    }
+    
+    // Get move data for priority check
+    const moveData = await fetchMoveData(move.name);
+    const movePriority = getMovePriority(move.name);
+    
+    // Psychic Terrain blocks priority moves against grounded Pokemon
+    if (gameState.terrain === TERRAIN_CONDITIONS.PSYCHIC && movePriority > 0) {
+        const defenderGrounded = !defenderPokemon.data.types.some(t => t.type.name === 'flying') && 
+                                 defenderPokemon.ability !== 'Levitate';
+        if (defenderGrounded) {
+            addLog(`${attackerPokemon.name} 使用了 ${move.displayName}！`);
+            await sleep(300);
+            addLog(`精神场地阻止了先制招式！`);
+            return;
+        }
+    }
+    
     // Animation
     const sprite = document.getElementById(`${attacker}Sprite`);
     sprite.classList.add('attacking');
@@ -693,39 +2269,118 @@ async function executeAttack(attacker, move) {
     await sleep(300);
     sprite.classList.remove('attacking');
     
-    // Calculate damage
+    // Check if this is a status move (no damage)
+    if (moveData && moveData.damage_class && moveData.damage_class.name === 'status') {
+        // Apply special effects
+        const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData);
+        for (const effect of effects) {
+            addLog(effect);
+            await sleep(300);
+        }
+        return;
+    }
+    
+    // Calculate damage for attacking moves
     const result = await calculateDamage(attackerPokemon, defenderPokemon, move);
     
     // Apply damage
-    defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
-    
-    // Update display
-    updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
-    document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
-        `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
-    
-    // Damage animation
-    const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
-    defenderSprite.classList.add('taking-damage');
-    
-    // Show effectiveness
-    if (result.critical) {
-        addLog('会心一击！');
+    let actualDamage = 0;
+    if (result.damage > 0) {
+        // Check if defender has substitute
+        if (defenderPokemon.substituteHP > 0) {
+            const substDamage = Math.min(result.damage, defenderPokemon.substituteHP);
+            defenderPokemon.substituteHP -= substDamage;
+            actualDamage = 0; // No HP damage when substitute takes it
+            
+            if (defenderPokemon.substituteHP <= 0) {
+                defenderPokemon.substituteHP = 0;
+                removeVolatileStatus(defenderPokemon, VOLATILE_STATUS.SUBSTITUTE);
+                addLog(`${defenderPokemon.name} 的替身消失了！`);
+            } else {
+                addLog(`替身代替${defenderPokemon.name}承受了伤害！`);
+            }
+        } else {
+            // Normal damage
+            defenderPokemon.currentHP = Math.max(0, defenderPokemon.currentHP - result.damage);
+            actualDamage = result.damage;
+            
+            // Update display
+            updateHPBar(isPlayer ? 'opponent' : 'player', defenderPokemon.currentHP, defenderPokemon.maxHP);
+            document.getElementById(isPlayer ? 'opponentHP' : 'playerHP').textContent = 
+                `${defenderPokemon.currentHP}/${defenderPokemon.maxHP}`;
+            
+            // Damage animation
+            const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
+            defenderSprite.classList.add('taking-damage');
+            
+            // Show effectiveness
+            if (result.critical) {
+                addLog('会心一击！');
+            }
+            if (result.effectiveness > 1) {
+                addLog('效果拔群！');
+            } else if (result.effectiveness < 1 && result.effectiveness > 0) {
+                addLog('效果不理想...');
+            } else if (result.effectiveness === 0) {
+                addLog('对方没有受到伤害...');
+            }
+            
+            // Show multi-hit count
+            if (result.hits && result.hits > 1) {
+                addLog(`击中了 ${result.hits} 次！`);
+            }
+            
+            await sleep(500);
+            defenderSprite.classList.remove('taking-damage');
+        }
+        
+        // Apply secondary effects (for attacking moves with additional effects)
+        if (moveData) {
+            const effects = await applyMoveEffects(attackerPokemon, defenderPokemon, move, moveData, actualDamage);
+            for (const effect of effects) {
+                addLog(effect);
+                await sleep(300);
+            }
+            
+            // Update HP display if healing/draining occurred
+            if (effects.some(e => e.includes('恢复') || e.includes('吸取'))) {
+                updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+                document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                    `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
+            }
+        }
+        
+        // Life Orb recoil (10% of max HP)
+        if (attackerPokemon.item === 'Life Orb' && !attackerPokemon.fainted) {
+            const recoil = Math.floor(attackerPokemon.maxHP * 0.1);
+            attackerPokemon.currentHP = Math.max(0, attackerPokemon.currentHP - recoil);
+            updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+            document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
+            addLog(`${attackerPokemon.name} 受到了生命宝珠的反伤！`);
+            await sleep(300);
+        }
+        
+        // Recoil moves
+        if (moveData && (moveData.name === 'Flare Blitz' || moveData.name === 'flare-blitz' ||
+                         moveData.name === 'Brave Bird' || moveData.name === 'brave-bird' ||
+                         moveData.name === 'Double-Edge' || moveData.name === 'double-edge')) {
+            const recoil = Math.floor(actualDamage * 0.33);
+            if (recoil > 0) {
+                attackerPokemon.currentHP = Math.max(0, attackerPokemon.currentHP - recoil);
+                updateHPBar(isPlayer ? 'player' : 'opponent', attackerPokemon.currentHP, attackerPokemon.maxHP);
+                document.getElementById(isPlayer ? 'playerHP' : 'opponentHP').textContent = 
+                    `${attackerPokemon.currentHP}/${attackerPokemon.maxHP}`;
+                addLog(`${attackerPokemon.name} 受到了反作用力的伤害！`);
+                await sleep(300);
+            }
+        }
     }
-    if (result.effectiveness > 1) {
-        addLog('效果拔群！');
-    } else if (result.effectiveness < 1 && result.effectiveness > 0) {
-        addLog('效果不理想...');
-    } else if (result.effectiveness === 0) {
-        addLog('对方没有受到伤害...');
-    }
-    
-    await sleep(500);
-    defenderSprite.classList.remove('taking-damage');
     
     // Check if Pokemon fainted
     if (defenderPokemon.currentHP === 0) {
         defenderPokemon.fainted = true;
+        const defenderSprite = document.getElementById(isPlayer ? 'opponentSprite' : 'playerSprite');
         defenderSprite.classList.add('fainted');
         addLog(`${defenderPokemon.name} 失去了战斗能力！`);
         await sleep(800);
@@ -913,13 +2568,15 @@ async function renderPokemonList(filter = '') {
     };
     
     let minId = 1;
-    let maxId = GEN_1_POKEMON_LIMIT;
+    let maxId = MAX_POKEMON_ID;
     
     if (generationFilter && genRanges[generationFilter]) {
         [minId, maxId] = genRanges[generationFilter];
     }
     
     let count = 0;
+    const MAX_DISPLAY_PER_PAGE = 200; // Limit to 200 Pokemon per page for performance
+    
     for (const pokemon of gameState.availablePokemon) {
         // Extract ID from URL if available
         const pokemonId = pokemon.url ? parseInt(pokemon.url.split('/').filter(Boolean).pop()) : count + 1;
@@ -958,7 +2615,7 @@ async function renderPokemonList(filter = '') {
         grid.appendChild(card);
         
         count++;
-        if (count >= GEN_1_POKEMON_LIMIT) break; // Limit display count per filter
+        if (count >= MAX_DISPLAY_PER_PAGE) break; // Limit display count per filter for performance
     }
 }
 
@@ -1212,7 +2869,16 @@ function saveConfiguration() {
         currentHP: stats.hp,
         maxHP: stats.hp,
         fainted: false,
-        id: pokemon.id
+        id: pokemon.id,
+        status: STATUS_CONDITIONS.NONE,
+        volatileStatus: [],
+        statChanges: { attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0, accuracy: 0, evasion: 0 },
+        statusTurns: 0,
+        confusionTurns: 0,
+        substituteHP: 0,
+        protectUsed: false,
+        ability: 'None', // Default ability - could be customized later
+        item: 'None' // Default item - could be customized later
     });
     
     updateTeamCounter();
