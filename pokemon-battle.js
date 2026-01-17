@@ -118,6 +118,43 @@ const OPPONENT_TEAM = [
     }
 ];
 
+// Status condition constants
+const STATUS_CONDITIONS = {
+    NONE: 'none',
+    BURN: 'burn',
+    POISON: 'poison',
+    BADLY_POISON: 'badly-poison',
+    PARALYSIS: 'paralysis',
+    SLEEP: 'sleep',
+    FREEZE: 'freeze'
+};
+
+const VOLATILE_STATUS = {
+    CONFUSION: 'confusion',
+    FLINCH: 'flinch',
+    LEECH_SEED: 'leech-seed',
+    SUBSTITUTE: 'substitute',
+    PROTECT: 'protect'
+};
+
+// Weather constants
+const WEATHER_CONDITIONS = {
+    NONE: 'none',
+    SUN: 'sun',
+    RAIN: 'rain',
+    SANDSTORM: 'sandstorm',
+    HAIL: 'hail'
+};
+
+// Terrain constants
+const TERRAIN_CONDITIONS = {
+    NONE: 'none',
+    ELECTRIC: 'electric',
+    GRASSY: 'grassy',
+    MISTY: 'misty',
+    PSYCHIC: 'psychic'
+};
+
 // Global state
 let gameState = {
     playerTeam: [], // Array of 6 Pokemon for the player
@@ -128,7 +165,12 @@ let gameState = {
     availablePokemon: [],
     teamBeingBuilt: [], // Temporary array while building team
     currentConfig: null, // Pokemon being configured
-    scrollPosition: 0 // Save scroll position when navigating away
+    scrollPosition: 0, // Save scroll position when navigating away
+    weather: WEATHER_CONDITIONS.NONE,
+    weatherTurns: 0,
+    terrain: TERRAIN_CONDITIONS.NONE,
+    terrainTurns: 0,
+    turnCount: 0
 };
 
 // ==================== API Functions ====================
@@ -252,14 +294,183 @@ function getTypeEffectiveness(attackType, defenderTypes) {
     return effectiveness;
 }
 
+// ==================== Status Condition Functions ====================
+
+function applyStatusCondition(pokemon, status) {
+    // Can't apply status if already has one (except volatile)
+    if (pokemon.status !== STATUS_CONDITIONS.NONE && pokemon.status !== status) {
+        return false;
+    }
+    
+    // Type immunities
+    if (status === STATUS_CONDITIONS.BURN && pokemon.data.types.some(t => t.type.name === 'fire')) {
+        return false;
+    }
+    if (status === STATUS_CONDITIONS.POISON && pokemon.data.types.some(t => t.type.name === 'poison' || t.type.name === 'steel')) {
+        return false;
+    }
+    if (status === STATUS_CONDITIONS.PARALYSIS && pokemon.data.types.some(t => t.type.name === 'electric')) {
+        return false;
+    }
+    
+    pokemon.status = status;
+    pokemon.statusTurns = 0;
+    return true;
+}
+
+function applyVolatileStatus(pokemon, volatileStatus) {
+    if (!pokemon.volatileStatus.includes(volatileStatus)) {
+        pokemon.volatileStatus.push(volatileStatus);
+        return true;
+    }
+    return false;
+}
+
+function removeVolatileStatus(pokemon, volatileStatus) {
+    const index = pokemon.volatileStatus.indexOf(volatileStatus);
+    if (index > -1) {
+        pokemon.volatileStatus.splice(index, 1);
+    }
+}
+
+function getStatusDamage(pokemon) {
+    let damage = 0;
+    
+    if (pokemon.status === STATUS_CONDITIONS.BURN) {
+        damage = Math.floor(pokemon.maxHP / 16);
+    } else if (pokemon.status === STATUS_CONDITIONS.POISON) {
+        damage = Math.floor(pokemon.maxHP / 8);
+    } else if (pokemon.status === STATUS_CONDITIONS.BADLY_POISON) {
+        pokemon.statusTurns++;
+        damage = Math.floor((pokemon.maxHP * pokemon.statusTurns) / 16);
+    }
+    
+    return damage;
+}
+
+function canMove(pokemon) {
+    // Check if Pokemon is frozen
+    if (pokemon.status === STATUS_CONDITIONS.FREEZE) {
+        // 20% chance to thaw
+        if (Math.random() < 0.2) {
+            pokemon.status = STATUS_CONDITIONS.NONE;
+            return { canMove: true, message: `${pokemon.name} 解冻了！` };
+        }
+        return { canMove: false, message: `${pokemon.name} 冻住了！` };
+    }
+    
+    // Check if Pokemon is asleep
+    if (pokemon.status === STATUS_CONDITIONS.SLEEP) {
+        pokemon.statusTurns++;
+        if (pokemon.statusTurns >= 3) {
+            pokemon.status = STATUS_CONDITIONS.NONE;
+            pokemon.statusTurns = 0;
+            return { canMove: true, message: `${pokemon.name} 醒了！` };
+        }
+        return { canMove: false, message: `${pokemon.name} 正在睡觉！` };
+    }
+    
+    // Check if Pokemon is paralyzed (25% chance to be fully paralyzed)
+    if (pokemon.status === STATUS_CONDITIONS.PARALYSIS) {
+        if (Math.random() < 0.25) {
+            return { canMove: false, message: `${pokemon.name} 身体麻痹了！` };
+        }
+    }
+    
+    // Check confusion
+    if (pokemon.volatileStatus.includes(VOLATILE_STATUS.CONFUSION)) {
+        pokemon.confusionTurns++;
+        if (pokemon.confusionTurns >= 4 || Math.random() < 0.33) {
+            removeVolatileStatus(pokemon, VOLATILE_STATUS.CONFUSION);
+            pokemon.confusionTurns = 0;
+            if (pokemon.confusionTurns === 0) {
+                return { canMove: true, message: `${pokemon.name} 从混乱中恢复了！` };
+            }
+        }
+        
+        // 33% chance to hit itself in confusion
+        if (Math.random() < 0.33) {
+            const confusionDamage = Math.floor(pokemon.stats.attack * 40 / pokemon.stats.defense / 50 + 2);
+            return { canMove: false, message: `${pokemon.name} 在混乱中攻击了自己！`, selfDamage: confusionDamage };
+        }
+    }
+    
+    return { canMove: true };
+}
+
+function getStatMultiplier(statChange) {
+    if (statChange >= 0) {
+        return (2 + statChange) / 2;
+    } else {
+        return 2 / (2 - statChange);
+    }
+}
+
+function changeStatStage(pokemon, stat, stages) {
+    const oldValue = pokemon.statChanges[stat];
+    pokemon.statChanges[stat] = Math.max(-6, Math.min(6, oldValue + stages));
+    
+    if (pokemon.statChanges[stat] === oldValue) {
+        return null; // No change
+    }
+    
+    const direction = stages > 0 ? '上升' : '下降';
+    const amount = Math.abs(stages) === 1 ? '' : 
+                   Math.abs(stages) === 2 ? '大幅' : 
+                   Math.abs(stages) === 3 ? '极大地' : '剧烈地';
+    
+    const statNames = {
+        attack: '攻击',
+        defense: '防御',
+        spAttack: '特攻',
+        spDefense: '特防',
+        speed: '速度',
+        accuracy: '命中率',
+        evasion: '闪避率'
+    };
+    
+    return `${pokemon.name} 的 ${statNames[stat]} ${amount}${direction}了！`;
+}
+
+function getModifiedStat(pokemon, statName) {
+    let baseStat = pokemon.stats[statName];
+    
+    // Apply stat stage multiplier
+    const multiplier = getStatMultiplier(pokemon.statChanges[statName]);
+    let modifiedStat = Math.floor(baseStat * multiplier);
+    
+    // Apply status effects
+    if (statName === 'attack' && pokemon.status === STATUS_CONDITIONS.BURN) {
+        modifiedStat = Math.floor(modifiedStat * 0.5);
+    }
+    if (statName === 'speed' && pokemon.status === STATUS_CONDITIONS.PARALYSIS) {
+        modifiedStat = Math.floor(modifiedStat * 0.5);
+    }
+    
+    // Apply weather effects
+    if (gameState.weather === WEATHER_CONDITIONS.SANDSTORM && 
+        pokemon.data.types.some(t => t.type.name === 'rock') &&
+        statName === 'spDefense') {
+        modifiedStat = Math.floor(modifiedStat * 1.5);
+    }
+    
+    return modifiedStat;
+}
+
 async function calculateDamage(attacker, defender, move) {
     const moveData = await fetchMoveData(move.name);
-    if (!moveData || !moveData.power) return 0;
+    if (!moveData || !moveData.power) return { damage: 0, effectiveness: 1, critical: false, moveType: 'normal' };
     
     const level = 50;
-    const power = moveData.power;
-    const attackStat = moveData.damage_class.name === 'physical' ? attacker.stats.attack : attacker.stats.spAttack;
-    const defenseStat = moveData.damage_class.name === 'physical' ? defender.stats.defense : defender.stats.spDefense;
+    let power = moveData.power;
+    
+    // Get modified stats (with stat changes, status, weather)
+    const attackStat = moveData.damage_class.name === 'physical' ? 
+        getModifiedStat(attacker, 'attack') : 
+        getModifiedStat(attacker, 'spAttack');
+    const defenseStat = moveData.damage_class.name === 'physical' ? 
+        getModifiedStat(defender, 'defense') : 
+        getModifiedStat(defender, 'spDefense');
     
     // Check STAB (Same Type Attack Bonus)
     const stab = attacker.data.types.some(t => t.type.name === moveData.type.name) ? 1.5 : 1;
@@ -267,15 +478,25 @@ async function calculateDamage(attacker, defender, move) {
     // Type effectiveness
     const effectiveness = getTypeEffectiveness(moveData.type.name, defender.data.types);
     
+    // Weather effects
+    let weatherMultiplier = 1;
+    if (gameState.weather === WEATHER_CONDITIONS.SUN) {
+        if (moveData.type.name === 'fire') weatherMultiplier = 1.5;
+        if (moveData.type.name === 'water') weatherMultiplier = 0.5;
+    } else if (gameState.weather === WEATHER_CONDITIONS.RAIN) {
+        if (moveData.type.name === 'water') weatherMultiplier = 1.5;
+        if (moveData.type.name === 'fire') weatherMultiplier = 0.5;
+    }
+    
     // Random factor (85-100%)
     const random = (Math.random() * 0.15 + 0.85);
     
     // Critical hit (6.25% chance)
     const critical = Math.random() < 0.0625 ? 2 : 1;
     
-    // Damage formula (simplified Gen VI formula)
+    // Damage formula (Gen VI formula)
     const baseDamage = ((2 * level / 5 + 2) * power * attackStat / defenseStat / 50 + 2);
-    const damage = Math.floor(baseDamage * stab * effectiveness * random * critical);
+    const damage = Math.floor(baseDamage * stab * effectiveness * weatherMultiplier * random * critical);
     
     return {
         damage: Math.max(1, damage),
@@ -367,7 +588,14 @@ async function initializeBattle() {
                 level: opponentData.level,
                 currentHP: stats.hp,
                 maxHP: stats.hp,
-                fainted: false
+                fainted: false,
+                status: STATUS_CONDITIONS.NONE,
+                volatileStatus: [],
+                statChanges: { attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0, accuracy: 0, evasion: 0 },
+                statusTurns: 0,
+                confusionTurns: 0,
+                substituteHP: 0,
+                protectUsed: false
             });
         }
     }
@@ -390,7 +618,19 @@ function renderBattle() {
     const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     // Render opponent
-    document.getElementById('opponentName').textContent = currentOpponent.name;
+    let opponentNameText = currentOpponent.name;
+    if (currentOpponent.status !== STATUS_CONDITIONS.NONE) {
+        const statusIcons = {
+            [STATUS_CONDITIONS.BURN]: '🔥',
+            [STATUS_CONDITIONS.POISON]: '☠️',
+            [STATUS_CONDITIONS.BADLY_POISON]: '💀',
+            [STATUS_CONDITIONS.PARALYSIS]: '⚡',
+            [STATUS_CONDITIONS.SLEEP]: '💤',
+            [STATUS_CONDITIONS.FREEZE]: '❄️'
+        };
+        opponentNameText += ' ' + statusIcons[currentOpponent.status];
+    }
+    document.getElementById('opponentName').textContent = opponentNameText;
     document.getElementById('opponentLevel').textContent = `Lv.${currentOpponent.level}`;
     document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
     updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
@@ -399,7 +639,19 @@ function renderBattle() {
     opponentSprite.innerHTML = `<img src="${currentOpponent.data.sprites.front_default}" alt="${currentOpponent.name}">`;
     
     // Render player
-    document.getElementById('playerName').textContent = currentPlayer.name;
+    let playerNameText = currentPlayer.name;
+    if (currentPlayer.status !== STATUS_CONDITIONS.NONE) {
+        const statusIcons = {
+            [STATUS_CONDITIONS.BURN]: '🔥',
+            [STATUS_CONDITIONS.POISON]: '☠️',
+            [STATUS_CONDITIONS.BADLY_POISON]: '💀',
+            [STATUS_CONDITIONS.PARALYSIS]: '⚡',
+            [STATUS_CONDITIONS.SLEEP]: '💤',
+            [STATUS_CONDITIONS.FREEZE]: '❄️'
+        };
+        playerNameText += ' ' + statusIcons[currentPlayer.status];
+    }
+    document.getElementById('playerName').textContent = playerNameText;
     document.getElementById('playerLevel').textContent = `Lv.${currentPlayer.level}`;
     document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
     updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
@@ -559,15 +811,17 @@ async function executeTurn(moveIndex) {
     const moveButtons = document.querySelectorAll('.move-btn');
     moveButtons.forEach(btn => btn.disabled = true);
     
+    gameState.turnCount++;
+    
     const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
     const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
     
     const playerMove = currentPlayer.moves[moveIndex];
     const opponentMove = selectAIMove(currentOpponent, currentPlayer);
     
-    // Determine turn order based on speed
-    const playerSpeed = currentPlayer.stats.speed;
-    const opponentSpeed = currentOpponent.stats.speed;
+    // Determine turn order based on speed (with stat modifications)
+    const playerSpeed = getModifiedStat(currentPlayer, 'speed');
+    const opponentSpeed = getModifiedStat(currentOpponent, 'speed');
     
     let firstAttacker, firstMove, secondAttacker, secondMove;
     
@@ -576,15 +830,47 @@ async function executeTurn(moveIndex) {
         firstMove = playerMove;
         secondAttacker = 'opponent';
         secondMove = opponentMove;
-    } else {
+    } else if (playerSpeed < opponentSpeed) {
         firstAttacker = 'opponent';
         firstMove = opponentMove;
         secondAttacker = 'player';
         secondMove = playerMove;
+    } else {
+        // Speed tie - random
+        if (Math.random() < 0.5) {
+            firstAttacker = 'player';
+            firstMove = playerMove;
+            secondAttacker = 'opponent';
+            secondMove = opponentMove;
+        } else {
+            firstAttacker = 'opponent';
+            firstMove = opponentMove;
+            secondAttacker = 'player';
+            secondMove = playerMove;
+        }
     }
     
     // Execute first attack
-    await executeAttack(firstAttacker, firstMove);
+    const firstPokemon = firstAttacker === 'player' ? currentPlayer : currentOpponent;
+    const canMoveResult = canMove(firstPokemon);
+    
+    if (canMoveResult.message) {
+        addLog(canMoveResult.message);
+        await sleep(500);
+    }
+    
+    if (canMoveResult.canMove) {
+        await executeAttack(firstAttacker, firstMove);
+    } else if (canMoveResult.selfDamage) {
+        // Confusion self-damage
+        firstPokemon.currentHP = Math.max(0, firstPokemon.currentHP - canMoveResult.selfDamage);
+        updateHPBar(firstAttacker, firstPokemon.currentHP, firstPokemon.maxHP);
+        document.getElementById(`${firstAttacker}HP`).textContent = `${firstPokemon.currentHP}/${firstPokemon.maxHP}`;
+        
+        if (firstPokemon.currentHP === 0) {
+            firstPokemon.fainted = true;
+        }
+    }
     
     // Check if battle ended
     if (checkBattleEnd()) {
@@ -605,12 +891,30 @@ async function executeTurn(moveIndex) {
     await sleep(500);
     
     // Execute second attack if both Pokemon still alive
-    const secondAttackerPokemon = secondAttacker === 'player' ? 
+    const secondPokemon = secondAttacker === 'player' ? 
         gameState.playerTeam[gameState.currentPlayerIndex] : 
         gameState.opponentTeam[gameState.currentOpponentIndex];
     
-    if (!secondAttackerPokemon.fainted) {
-        await executeAttack(secondAttacker, secondMove);
+    if (!secondPokemon.fainted) {
+        const canMoveResult2 = canMove(secondPokemon);
+        
+        if (canMoveResult2.message) {
+            addLog(canMoveResult2.message);
+            await sleep(500);
+        }
+        
+        if (canMoveResult2.canMove) {
+            await executeAttack(secondAttacker, secondMove);
+        } else if (canMoveResult2.selfDamage) {
+            // Confusion self-damage
+            secondPokemon.currentHP = Math.max(0, secondPokemon.currentHP - canMoveResult2.selfDamage);
+            updateHPBar(secondAttacker, secondPokemon.currentHP, secondPokemon.maxHP);
+            document.getElementById(`${secondAttacker}HP`).textContent = `${secondPokemon.currentHP}/${secondPokemon.maxHP}`;
+            
+            if (secondPokemon.currentHP === 0) {
+                secondPokemon.fainted = true;
+            }
+        }
     }
     
     // Check if battle ended
@@ -619,7 +923,141 @@ async function executeTurn(moveIndex) {
     }
     
     // Check for faints after second attack
-    if (secondAttacker === 'player' && secondAttackerPokemon.fainted) {
+    if (secondAttacker === 'player' && secondPokemon.fainted) {
+        await handleForcedSwitch('player');
+    } else if (secondAttacker === 'opponent' && secondPokemon.fainted) {
+        await switchOpponentPokemon();
+    }
+    
+    // End of turn effects
+    await applyEndOfTurnEffects();
+    
+    checkBattleEnd();
+    
+    // Re-enable move buttons
+    moveButtons.forEach(btn => btn.disabled = false);
+}
+
+async function applyEndOfTurnEffects() {
+    const currentPlayer = gameState.playerTeam[gameState.currentPlayerIndex];
+    const currentOpponent = gameState.opponentTeam[gameState.currentOpponentIndex];
+    
+    // Apply status damage to player
+    if (!currentPlayer.fainted && currentPlayer.status !== STATUS_CONDITIONS.NONE) {
+        const damage = getStatusDamage(currentPlayer);
+        if (damage > 0) {
+            currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+            updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+            document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+            
+            if (currentPlayer.status === STATUS_CONDITIONS.BURN) {
+                addLog(`${currentPlayer.name} 受到了灼伤的伤害！`);
+            } else if (currentPlayer.status === STATUS_CONDITIONS.POISON || currentPlayer.status === STATUS_CONDITIONS.BADLY_POISON) {
+                addLog(`${currentPlayer.name} 受到了中毒的伤害！`);
+            }
+            
+            await sleep(500);
+            
+            if (currentPlayer.currentHP === 0) {
+                currentPlayer.fainted = true;
+                addLog(`${currentPlayer.name} 失去了战斗能力！`);
+                await sleep(500);
+            }
+        }
+    }
+    
+    // Apply status damage to opponent
+    if (!currentOpponent.fainted && currentOpponent.status !== STATUS_CONDITIONS.NONE) {
+        const damage = getStatusDamage(currentOpponent);
+        if (damage > 0) {
+            currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+            updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+            document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+            
+            if (currentOpponent.status === STATUS_CONDITIONS.BURN) {
+                addLog(`${currentOpponent.name} 受到了灼伤的伤害！`);
+            } else if (currentOpponent.status === STATUS_CONDITIONS.POISON || currentOpponent.status === STATUS_CONDITIONS.BADLY_POISON) {
+                addLog(`${currentOpponent.name} 受到了中毒的伤害！`);
+            }
+            
+            await sleep(500);
+            
+            if (currentOpponent.currentHP === 0) {
+                currentOpponent.fainted = true;
+                addLog(`${currentOpponent.name} 失去了战斗能力！`);
+                await sleep(500);
+            }
+        }
+    }
+    
+    // Apply weather damage
+    if (gameState.weather !== WEATHER_CONDITIONS.NONE) {
+        gameState.weatherTurns--;
+        
+        if (gameState.weather === WEATHER_CONDITIONS.SANDSTORM) {
+            // Sandstorm damages non-Rock/Ground/Steel types
+            if (!currentPlayer.fainted && 
+                !currentPlayer.data.types.some(t => ['rock', 'ground', 'steel'].includes(t.type.name))) {
+                const damage = Math.floor(currentPlayer.maxHP / 16);
+                currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+                updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                addLog(`${currentPlayer.name} 受到了沙暴的伤害！`);
+                await sleep(500);
+            }
+            
+            if (!currentOpponent.fainted && 
+                !currentOpponent.data.types.some(t => ['rock', 'ground', 'steel'].includes(t.type.name))) {
+                const damage = Math.floor(currentOpponent.maxHP / 16);
+                currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+                updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                addLog(`${currentOpponent.name} 受到了沙暴的伤害！`);
+                await sleep(500);
+            }
+        } else if (gameState.weather === WEATHER_CONDITIONS.HAIL) {
+            // Hail damages non-Ice types
+            if (!currentPlayer.fainted && 
+                !currentPlayer.data.types.some(t => t.type.name === 'ice')) {
+                const damage = Math.floor(currentPlayer.maxHP / 16);
+                currentPlayer.currentHP = Math.max(0, currentPlayer.currentHP - damage);
+                updateHPBar('player', currentPlayer.currentHP, currentPlayer.maxHP);
+                document.getElementById('playerHP').textContent = `${currentPlayer.currentHP}/${currentPlayer.maxHP}`;
+                addLog(`${currentPlayer.name} 受到了冰雹的伤害！`);
+                await sleep(500);
+            }
+            
+            if (!currentOpponent.fainted && 
+                !currentOpponent.data.types.some(t => t.type.name === 'ice')) {
+                const damage = Math.floor(currentOpponent.maxHP / 16);
+                currentOpponent.currentHP = Math.max(0, currentOpponent.currentHP - damage);
+                updateHPBar('opponent', currentOpponent.currentHP, currentOpponent.maxHP);
+                document.getElementById('opponentHP').textContent = `${currentOpponent.currentHP}/${currentOpponent.maxHP}`;
+                addLog(`${currentOpponent.name} 受到了冰雹的伤害！`);
+                await sleep(500);
+            }
+        }
+        
+        if (gameState.weatherTurns <= 0) {
+            const weatherNames = {
+                [WEATHER_CONDITIONS.SUN]: '晴天',
+                [WEATHER_CONDITIONS.RAIN]: '雨天',
+                [WEATHER_CONDITIONS.SANDSTORM]: '沙暴',
+                [WEATHER_CONDITIONS.HAIL]: '冰雹'
+            };
+            addLog(`${weatherNames[gameState.weather]} 停止了！`);
+            gameState.weather = WEATHER_CONDITIONS.NONE;
+        }
+    }
+    
+    // Clear volatile statuses that last only one turn
+    if (currentPlayer.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        removeVolatileStatus(currentPlayer, VOLATILE_STATUS.PROTECT);
+    }
+    if (currentOpponent.volatileStatus.includes(VOLATILE_STATUS.PROTECT)) {
+        removeVolatileStatus(currentOpponent, VOLATILE_STATUS.PROTECT);
+    }
+}
         await handleForcedSwitch('player');
     } else if (secondAttacker === 'opponent' && secondAttackerPokemon.fainted) {
         await switchOpponentPokemon();
@@ -1212,7 +1650,14 @@ function saveConfiguration() {
         currentHP: stats.hp,
         maxHP: stats.hp,
         fainted: false,
-        id: pokemon.id
+        id: pokemon.id,
+        status: STATUS_CONDITIONS.NONE,
+        volatileStatus: [],
+        statChanges: { attack: 0, defense: 0, spAttack: 0, spDefense: 0, speed: 0, accuracy: 0, evasion: 0 },
+        statusTurns: 0,
+        confusionTurns: 0,
+        substituteHP: 0,
+        protectUsed: false
     });
     
     updateTeamCounter();
