@@ -241,6 +241,26 @@ function getMovePriority(moveName) {
 async function applyMoveEffects(attacker, defender, move, moveData, damageDealt = 0) {
     const effects = [];
     
+    // OHKO moves
+    if (moveData.name === 'Fissure' || moveData.name === 'fissure' ||
+        moveData.name === 'Guillotine' || moveData.name === 'guillotine' ||
+        moveData.name === 'Horn Drill' || moveData.name === 'horn-drill' ||
+        moveData.name === 'Sheer Cold' || moveData.name === 'sheer-cold') {
+        // OHKO moves have 30% base accuracy, fails if target is higher level
+        if (defender.level > attacker.level) {
+            effects.push('但是失败了！');
+            return effects;
+        }
+        const accuracy = 0.3 + (attacker.level - defender.level) * 0.01;
+        if (Math.random() < accuracy) {
+            defender.currentHP = 0;
+            effects.push('一击必杀！');
+        } else {
+            effects.push('但是没有命中！');
+        }
+        return effects;
+    }
+    
     // Healing moves
     if (moveData.name === 'Rest' || moveData.name === 'rest') {
         const healAmount = attacker.maxHP - attacker.currentHP;
@@ -721,10 +741,74 @@ function getModifiedStat(pokemon, statName) {
 
 async function calculateDamage(attacker, defender, move) {
     const moveData = await fetchMoveData(move.name);
-    if (!moveData || !moveData.power) return { damage: 0, effectiveness: 1, critical: false, moveType: 'normal' };
+    if (!moveData || !moveData.power) {
+        // Check for fixed damage moves
+        if (moveData && (moveData.name === 'Seismic Toss' || moveData.name === 'seismic-toss' ||
+                         moveData.name === 'Night Shade' || moveData.name === 'night-shade')) {
+            // Fixed damage = attacker's level
+            return { 
+                damage: attacker.level, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        } else if (moveData && (moveData.name === 'Dragon Rage' || moveData.name === 'dragon-rage')) {
+            // Fixed 40 damage
+            return { 
+                damage: 40, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        } else if (moveData && (moveData.name === 'Sonic Boom' || moveData.name === 'sonic-boom')) {
+            // Fixed 20 damage
+            return { 
+                damage: 20, 
+                effectiveness: 1, 
+                critical: false, 
+                moveType: moveData.type.name,
+                isFixedDamage: true
+            };
+        }
+        
+        return { damage: 0, effectiveness: 1, critical: false, moveType: 'normal' };
+    }
     
     const level = 50;
     let power = moveData.power;
+    
+    // Multi-hit moves
+    let hits = 1;
+    if (moveData.name === 'Double Slap' || moveData.name === 'double-slap' ||
+        moveData.name === 'Fury Attack' || moveData.name === 'fury-attack' ||
+        moveData.name === 'Comet Punch' || moveData.name === 'comet-punch' ||
+        moveData.name === 'Fury Swipes' || moveData.name === 'fury-swipes' ||
+        moveData.name === 'Spike Cannon' || moveData.name === 'spike-cannon' ||
+        moveData.name === 'Pin Missile' || moveData.name === 'pin-missile') {
+        // 2-5 hits (35% 2 hits, 35% 3 hits, 15% 4 hits, 15% 5 hits)
+        const rand = Math.random();
+        if (rand < 0.35) hits = 2;
+        else if (rand < 0.70) hits = 3;
+        else if (rand < 0.85) hits = 4;
+        else hits = 5;
+    } else if (moveData.name === 'Double Kick' || moveData.name === 'double-kick' ||
+               moveData.name === 'Bonemerang' || moveData.name === 'bonemerang' ||
+               moveData.name === 'Double Hit' || moveData.name === 'double-hit') {
+        hits = 2;
+    } else if (moveData.name === 'Triple Kick' || moveData.name === 'triple-kick') {
+        hits = 3;
+    } else if (moveData.name === 'Bullet Seed' || moveData.name === 'bullet-seed' ||
+               moveData.name === 'Icicle Spear' || moveData.name === 'icicle-spear' ||
+               moveData.name === 'Rock Blast' || moveData.name === 'rock-blast') {
+        // 2-5 hits (same as above)
+        const rand = Math.random();
+        if (rand < 0.35) hits = 2;
+        else if (rand < 0.70) hits = 3;
+        else if (rand < 0.85) hits = 4;
+        else hits = 5;
+    }
     
     // Get modified stats (with stat changes, status, weather)
     let attackStat = moveData.damage_class.name === 'physical' ? 
@@ -824,11 +908,15 @@ async function calculateDamage(attacker, defender, move) {
         damage = Math.floor(damage * 1.3);
     }
     
+    // Apply multi-hit
+    damage = damage * hits;
+    
     return {
         damage: Math.max(1, damage),
         effectiveness,
         critical: critical === 2,
-        moveType: moveData.type.name
+        moveType: moveData.type.name,
+        hits: hits
     };
 }
 
@@ -1665,6 +1753,11 @@ async function executeAttack(attacker, move) {
                 addLog('效果不理想...');
             } else if (result.effectiveness === 0) {
                 addLog('对方没有受到伤害...');
+            }
+            
+            // Show multi-hit count
+            if (result.hits && result.hits > 1) {
+                addLog(`击中了 ${result.hits} 次！`);
             }
             
             await sleep(500);
