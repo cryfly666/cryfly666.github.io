@@ -578,15 +578,14 @@ async function executeTurn(moveIndex) {
         return;
     }
     
-    // Check if attacker's Pokemon fainted, forcing a switch
-    if (firstAttacker === 'player' && currentPlayer.fainted) {
+    // Check if DEFENDER's Pokemon fainted after first attack, forcing a switch
+    if (firstAttacker === 'player' && currentOpponent.fainted) {
+        await switchOpponentPokemon();
+        if (checkBattleEnd()) return;
+    } else if (firstAttacker === 'opponent' && currentPlayer.fainted) {
         await handleForcedSwitch('player');
         moveButtons.forEach(btn => btn.disabled = false);
         return;
-    }
-    if (firstAttacker === 'opponent' && currentOpponent.fainted) {
-        await switchOpponentPokemon();
-        if (checkBattleEnd()) return;
     }
     
     // Small delay between attacks
@@ -790,27 +789,27 @@ async function displayOpponentTeam() {
     
     showScreen('opponentScreen');
     
-    // Load opponent team if not loaded
-    if (gameState.opponentTeam.length === 0) {
-        for (const opponentData of OPPONENT_TEAM) {
-            const pokemonData = await fetchPokemonData(opponentData.id);
-            if (pokemonData) {
-                const stats = calculateStats(pokemonData, opponentData.level, opponentData.evs);
-                gameState.opponentTeam.push({
-                    data: pokemonData,
-                    stats,
-                    name: getCNName(pokemonData.id, 'pokemon'),
-                    level: opponentData.level,
-                    ability: opponentData.ability,
-                    item: opponentData.item
-                });
-            }
+    // Always load a fresh opponent team for preview (without battle-specific data like moves/fainted)
+    // This prevents any bugs with team size
+    const previewTeam = [];
+    for (const opponentData of OPPONENT_TEAM) {
+        const pokemonData = await fetchPokemonData(opponentData.id);
+        if (pokemonData) {
+            const stats = calculateStats(pokemonData, opponentData.level, opponentData.evs);
+            previewTeam.push({
+                data: pokemonData,
+                stats,
+                name: getCNName(pokemonData.id, 'pokemon'),
+                level: opponentData.level,
+                ability: opponentData.ability,
+                item: opponentData.item
+            });
         }
     }
     
     grid.innerHTML = '';
     
-    gameState.opponentTeam.forEach((pokemon, index) => {
+    previewTeam.forEach((pokemon, index) => {
         const card = createPokemonCard(pokemon, index, true);
         grid.appendChild(card);
     });
