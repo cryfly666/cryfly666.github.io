@@ -321,7 +321,9 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
     }
     
     // Status effect moves
-    if (moveData.name === 'Thunder Wave' || moveData.name === 'thunder-wave') {
+    if (moveData.name === 'Thunder Wave' || moveData.name === 'thunder-wave' ||
+        moveData.name === 'Stun Spore' || moveData.name === 'stun-spore' ||
+        moveData.name === 'Glare' || moveData.name === 'glare') {
         if (applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
             effects.push(`${defender.name} 被麻痹了！`);
         }
@@ -333,27 +335,51 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
         if (applyStatusCondition(defender, STATUS_CONDITIONS.BADLY_POISON)) {
             effects.push(`${defender.name} 中了剧毒！`);
         }
-    } else if (moveData.name === 'Poison Powder' || moveData.name === 'poison-powder') {
+    } else if (moveData.name === 'Poison Powder' || moveData.name === 'poison-powder' ||
+               moveData.name === 'Poisonpowder' || moveData.name === 'poisonpowder' ||
+               moveData.name === 'Poison Gas' || moveData.name === 'poison-gas') {
         if (applyStatusCondition(defender, STATUS_CONDITIONS.POISON)) {
             effects.push(`${defender.name} 中毒了！`);
         }
-    } else if (moveData.name === 'Sleep Powder' || moveData.name === 'sleep-powder' || moveData.name === 'Hypnosis' || moveData.name === 'hypnosis') {
+    } else if (moveData.name === 'Sleep Powder' || moveData.name === 'sleep-powder' || 
+               moveData.name === 'Hypnosis' || moveData.name === 'hypnosis' ||
+               moveData.name === 'Spore' || moveData.name === 'spore' ||
+               moveData.name === 'Lovely Kiss' || moveData.name === 'lovely-kiss') {
         if (applyStatusCondition(defender, STATUS_CONDITIONS.SLEEP)) {
             effects.push(`${defender.name} 睡着了！`);
         }
-    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam') {
+    } else if (moveData.name === 'Ice Beam' || moveData.name === 'ice-beam' ||
+               moveData.name === 'Ice Punch' || moveData.name === 'ice-punch') {
         // 10% chance to freeze
         if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
             effects.push(`${defender.name} 被冰冻了！`);
         }
-    } else if (moveData.name === 'Flamethrower' || moveData.name === 'flamethrower' || moveData.name === 'Fire Blast' || moveData.name === 'fire-blast') {
-        // 10% chance to burn
-        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+    } else if (moveData.name === 'Blizzard' || moveData.name === 'blizzard') {
+        // 10% chance to freeze
+        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.FREEZE)) {
+            effects.push(`${defender.name} 被冰冻了！`);
+        }
+    } else if (moveData.name === 'Flamethrower' || moveData.name === 'flamethrower' || 
+               moveData.name === 'Fire Blast' || moveData.name === 'fire-blast' ||
+               moveData.name === 'Fire Punch' || moveData.name === 'fire-punch' ||
+               moveData.name === 'Lava Plume' || moveData.name === 'lava-plume') {
+        // 10-30% chance to burn depending on move
+        const burnChance = (moveData.name === 'Lava Plume' || moveData.name === 'lava-plume') ? 0.3 : 0.1;
+        if (Math.random() < burnChance && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
             effects.push(`${defender.name} 被灼伤了！`);
         }
-    } else if (moveData.name === 'Thunderbolt' || moveData.name === 'thunderbolt' || moveData.name === 'Thunder' || moveData.name === 'thunder') {
-        // 10% chance to paralyze
-        if (Math.random() < 0.1 && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
+    } else if (moveData.name === 'Scald' || moveData.name === 'scald') {
+        // 30% chance to burn
+        if (Math.random() < 0.3 && applyStatusCondition(defender, STATUS_CONDITIONS.BURN)) {
+            effects.push(`${defender.name} 被灼伤了！`);
+        }
+    } else if (moveData.name === 'Thunderbolt' || moveData.name === 'thunderbolt' || 
+               moveData.name === 'Thunder' || moveData.name === 'thunder' ||
+               moveData.name === 'Thunder Punch' || moveData.name === 'thunder-punch' ||
+               moveData.name === 'Discharge' || moveData.name === 'discharge') {
+        // 10-30% chance to paralyze
+        const paraChance = (moveData.name === 'Discharge' || moveData.name === 'discharge') ? 0.3 : 0.1;
+        if (Math.random() < paraChance && applyStatusCondition(defender, STATUS_CONDITIONS.PARALYSIS)) {
             effects.push(`${defender.name} 被麻痹了！`);
         }
     }
@@ -375,9 +401,71 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
         const msg2 = changeStatStage(attacker, 'spDefense', 1);
         if (msg1) effects.push(msg1);
         if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Quiver Dance' || moveData.name === 'quiver-dance') {
+        const msg1 = changeStatStage(attacker, 'spAttack', 1);
+        const msg2 = changeStatStage(attacker, 'spDefense', 1);
+        const msg3 = changeStatStage(attacker, 'speed', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+    } else if (moveData.name === 'Shell Smash' || moveData.name === 'shell-smash') {
+        // +2 Atk, SpA, Spe; -1 Def, SpD
+        const msg1 = changeStatStage(attacker, 'attack', 2);
+        const msg2 = changeStatStage(attacker, 'spAttack', 2);
+        const msg3 = changeStatStage(attacker, 'speed', 2);
+        const msg4 = changeStatStage(attacker, 'defense', -1);
+        const msg5 = changeStatStage(attacker, 'spDefense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
+        if (msg4) effects.push(msg4);
+        if (msg5) effects.push(msg5);
+    } else if (moveData.name === 'Bulk Up' || moveData.name === 'bulk-up') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'defense', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Curse' || moveData.name === 'curse') {
+        // For Ghost types, different effect; for others: +1 Atk/Def, -1 Spe
+        if (attacker.data.types.some(t => t.type.name === 'ghost')) {
+            // Ghost-type Curse (self-damage, but we'll skip for now)
+            effects.push('但是失败了！');
+        } else {
+            const msg1 = changeStatStage(attacker, 'attack', 1);
+            const msg2 = changeStatStage(attacker, 'defense', 1);
+            const msg3 = changeStatStage(attacker, 'speed', -1);
+            if (msg1) effects.push(msg1);
+            if (msg2) effects.push(msg2);
+            if (msg3) effects.push(msg3);
+        }
+    } else if (moveData.name === 'Agility' || moveData.name === 'agility' ||
+               moveData.name === 'Rock Polish' || moveData.name === 'rock-polish') {
+        const msg = changeStatStage(attacker, 'speed', 2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Iron Defense' || moveData.name === 'iron-defense' ||
+               moveData.name === 'Acid Armor' || moveData.name === 'acid-armor') {
+        const msg = changeStatStage(attacker, 'defense', 2);
+        if (msg) effects.push(msg);
     } else if (moveData.name === 'Amnesia' || moveData.name === 'amnesia') {
         const msg = changeStatStage(attacker, 'spDefense', 2);
         if (msg) effects.push(msg);
+    } else if (moveData.name === 'Hone Claws' || moveData.name === 'hone-claws') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'accuracy', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Work Up' || moveData.name === 'work-up') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'spAttack', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+    } else if (moveData.name === 'Coil' || moveData.name === 'coil') {
+        const msg1 = changeStatStage(attacker, 'attack', 1);
+        const msg2 = changeStatStage(attacker, 'defense', 1);
+        const msg3 = changeStatStage(attacker, 'accuracy', 1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
+        if (msg3) effects.push(msg3);
     } else if (moveData.name === 'Growl' || moveData.name === 'growl') {
         const msg = changeStatStage(defender, 'attack', -1);
         if (msg) effects.push(msg);
@@ -387,9 +475,28 @@ async function applyMoveEffects(attacker, defender, move, moveData, damageDealt 
     } else if (moveData.name === 'String Shot' || moveData.name === 'string-shot') {
         const msg = changeStatStage(defender, 'speed', -1);
         if (msg) effects.push(msg);
-    } else if (moveData.name === 'Scary Face' || moveData.name === 'scary-face') {
+    } else if (moveData.name === 'Scary Face' || moveData.name === 'scary-face' ||
+               moveData.name === 'Cotton Spore' || moveData.name === 'cotton-spore') {
         const msg = changeStatStage(defender, 'speed', -2);
         if (msg) effects.push(msg);
+    } else if (moveData.name === 'Screech' || moveData.name === 'screech') {
+        const msg = changeStatStage(defender, 'defense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Charm' || moveData.name === 'charm' ||
+               moveData.name === 'Feather Dance' || moveData.name === 'feather-dance') {
+        const msg = changeStatStage(defender, 'attack', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Fake Tears' || moveData.name === 'fake-tears') {
+        const msg = changeStatStage(defender, 'spDefense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Metal Sound' || moveData.name === 'metal-sound') {
+        const msg = changeStatStage(defender, 'spDefense', -2);
+        if (msg) effects.push(msg);
+    } else if (moveData.name === 'Tickle' || moveData.name === 'tickle') {
+        const msg1 = changeStatStage(defender, 'attack', -1);
+        const msg2 = changeStatStage(defender, 'defense', -1);
+        if (msg1) effects.push(msg1);
+        if (msg2) effects.push(msg2);
     }
     
     // Confusion
