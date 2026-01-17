@@ -958,7 +958,7 @@ async function renderPokemonList(filter = '') {
         grid.appendChild(card);
         
         count++;
-        if (count >= 151) break; // Limit display count
+        if (count >= GEN_1_POKEMON_LIMIT) break; // Limit display count per filter
     }
 }
 
