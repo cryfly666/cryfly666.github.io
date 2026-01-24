@@ -47,8 +47,7 @@
             playerDirection: 0, // 0: North, 1: East, 2: South, 3: West
             time: 14, // PM 02:00 (24-hour: 14:00)
             subtitle: '',
-            subtitleTimer: 0,
-            levels: []
+            subtitleTimer: 0
         };
 
         // Level definitions
@@ -108,8 +107,6 @@
             }
         ];
 
-        game.levels = levels;
-
         // Initialize game
         function initGame() {
             loadLevel(game.currentLevel);
@@ -146,8 +143,6 @@
         });
 
         function handleInput(key) {
-            const level = levels[game.currentLevel];
-            
             switch(key) {
                 case 'ArrowUp':
                     movePlayer(1);
@@ -321,7 +316,7 @@
             let treeSize = 1.0;
             
             if (game.currentLevel === 1) {
-                // Level 2: Tree shrinks when time is close to PM 02:00 (14:00)
+                // Level 2 (index 1): Tree shrinks when time is close to PM 02:00 (14:00)
                 const timeDiff = Math.abs(game.time - 14);
                 if (timeDiff === 0) {
                     treeSize = 0.1; // Sapling
