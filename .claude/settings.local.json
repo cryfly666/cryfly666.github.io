@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(node -e ' *)",
+      "Bash(node fetch_data.js)"
+    ]
+  }
+}

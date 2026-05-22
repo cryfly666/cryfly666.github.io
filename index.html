@@ -1,47 +1,17 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="0; url=pokemon-battle.html">
-    <title>宝可梦对战挑战</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: #0a0a0a;
-            color: #e0e0e0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-        }
-        .redirect-message {
-            text-align: center;
-        }
-        .redirect-message h1 {
-            font-size: 2rem;
-            margin-bottom: 1rem;
-        }
-        .redirect-message p {
-            font-size: 1rem;
-            color: #999;
-        }
-        .redirect-message a {
-            color: #4a9eff;
-            text-decoration: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>宝可梦对战</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="redirect-message">
-        <h1>正在跳转到宝可梦对战...</h1>
-        <p>如果没有自动跳转，请<a href="pokemon-battle.html">点击这里</a></p>
-    </div>
-    <script>
-        // Immediate redirect as backup
-        window.location.href = 'pokemon-battle.html';
-    </script>
+  <div id="app"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/battle.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/ui.js"></script>
 </body>
 </html>
